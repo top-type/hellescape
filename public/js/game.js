@@ -44,6 +44,16 @@ const gameState = {
     },
     worldWidth: 3000,  // Much wider world
     worldHeight: 1000, // Base height for the world (only used for bottom boundary)
+    // Add black hole at 20000m (y = -20000)
+    blackHole: {
+        x: 1500, // Center of the world width
+        y: -20000, // At 20000m height
+        radius: 200, // Large radius to make it visible from far away
+        outerRadius: 400, // Outer glow radius
+        rotationAngle: 0, // For animation
+        isActive: true,
+        hasWon: false // Victory flag
+    },
     platforms: [
         // Ground platforms
         { x: 0, y: 450, width: 800, height: 50, color: '#3a3a3a' },
@@ -345,23 +355,43 @@ function killPlayer() {
         gameState.player.deathAnimation.progress = 0;
         createDeathParticles();
         
-        // Display death message
-        document.getElementById('timeInfo').textContent = "YOU DIED - PRESS SPACE TO REWIND";
+        // We've removed the timeInfo element, so we'll display the death message in the updateDeathAnimation function
     }
 }
 
 // Update death animation
 function updateDeathAnimation() {
-    if (gameState.player.isDead && gameState.player.deathAnimation.progress < gameState.player.deathAnimation.maxProgress) {
-        gameState.player.deathAnimation.progress++;
+    const player = gameState.player;
+    
+    if (player.isDead) {
+        player.deathAnimation.progress++;
         
         // Update particles
-        for (const particle of gameState.player.deathAnimation.particles) {
+        for (let i = 0; i < player.deathAnimation.particles.length; i++) {
+            const particle = player.deathAnimation.particles[i];
             particle.x += particle.speedX;
             particle.y += particle.speedY;
-            particle.speedY += 0.1; // Gravity effect on particles
-            particle.opacity -= 0.02;
-            if (particle.opacity < 0) particle.opacity = 0;
+            particle.speedY += 0.1; // Gravity
+            particle.life--;
+        }
+        
+        // Remove dead particles
+        player.deathAnimation.particles = player.deathAnimation.particles.filter(p => p.life > 0);
+        
+        // Display death message
+        if (player.deathAnimation.progress >= player.deathAnimation.maxProgress) {
+            // Create a death message overlay instead of using timeInfo
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.font = 'bold 36px Arial';
+            ctx.fillStyle = '#ff0000';
+            ctx.textAlign = 'center';
+            ctx.fillText('YOU DIED', canvas.width / 2, canvas.height / 2 - 20);
+            
+            ctx.font = '24px Arial';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('PRESS SPACE TO REWIND', canvas.width / 2, canvas.height / 2 + 20);
         }
     }
 }
@@ -844,6 +874,9 @@ function draw() {
     // Draw platforms (only those visible in camera view)
     drawPlatforms();
     
+    // Draw black hole
+    drawBlackHole();
+    
     // Draw traps (only those visible in camera view)
     for (const trap of gameState.traps) {
         if (isVisible(trap)) {
@@ -1172,8 +1205,8 @@ function gameLoop(timestamp) {
     }
     const elapsed = timestamp - gameState.lastUpdateTime;
     
-    // Only update if enough time has passed
-    if (elapsed > FRAME_DELAY) {
+    // Only update if enough time has passed and game is not over
+    if (elapsed > FRAME_DELAY && !gameState.gameOver) {
         gameState.lastUpdateTime = timestamp;
         
         if (gameState.isRewinding) {
@@ -1181,15 +1214,22 @@ function gameLoop(timestamp) {
         } else {
             updatePlayer();
             updateCthulhu(); // Add Cthulhu update
+            checkBlackHoleVictory(); // Check if player reached the black hole
             saveGameState();
             gameState.gameTime++;
             recoverRewindEnergy();
         }
         
         draw();
+    } else if (gameState.gameOver) {
+        // If game is over, just draw the final frame
+        draw();
     }
     
-    requestAnimationFrame(gameLoop);
+    // Continue the game loop if game is not over
+    if (!gameState.gameOver) {
+        requestAnimationFrame(gameLoop);
+    }
 }
 
 // Start the game
@@ -1875,4 +1915,217 @@ function drawCthulhu() {
         
         ctx.restore();
     }
-} 
+}
+
+// Draw the black hole
+function drawBlackHole() {
+    const blackHole = gameState.blackHole;
+    
+    // Only draw if it's in the camera view or close to it
+    if (blackHole.y - camera.y > -1000 && blackHole.y - camera.y < canvas.height + 1000 &&
+        blackHole.x - camera.x > -1000 && blackHole.x - camera.x < canvas.width + 1000) {
+        
+        // Update rotation for animation
+        blackHole.rotationAngle += 0.01;
+        
+        // Save context for rotation
+        ctx.save();
+        ctx.translate(blackHole.x - camera.x, blackHole.y - camera.y);
+        ctx.rotate(blackHole.rotationAngle);
+        
+        // Draw far outer glow (larger and more subtle)
+        const farGradient = ctx.createRadialGradient(
+            0, 0, blackHole.radius,
+            0, 0, blackHole.outerRadius * 2
+        );
+        farGradient.addColorStop(0, 'rgba(30, 0, 60, 0.6)');
+        farGradient.addColorStop(0.5, 'rgba(20, 0, 40, 0.3)');
+        farGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        
+        ctx.fillStyle = farGradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, blackHole.outerRadius * 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw outer glow
+        const gradient = ctx.createRadialGradient(
+            0, 0, blackHole.radius * 0.5,
+            0, 0, blackHole.outerRadius
+        );
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        gradient.addColorStop(0.5, 'rgba(30, 0, 60, 0.8)');
+        gradient.addColorStop(0.7, 'rgba(60, 0, 120, 0.5)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, blackHole.outerRadius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw inner black hole with slight gradient for depth
+        const innerGradient = ctx.createRadialGradient(
+            0, 0, 0,
+            0, 0, blackHole.radius
+        );
+        innerGradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        innerGradient.addColorStop(0.7, 'rgba(10, 0, 20, 1)');
+        innerGradient.addColorStop(1, 'rgba(20, 0, 40, 1)');
+        
+        ctx.fillStyle = innerGradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, blackHole.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw multiple accretion disks for more complex appearance
+        // Main disk
+        ctx.strokeStyle = 'rgba(120, 20, 220, 0.7)';
+        ctx.lineWidth = 15;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, blackHole.radius * 1.2, blackHole.radius * 0.4, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Secondary disk at different angle
+        ctx.strokeStyle = 'rgba(80, 10, 160, 0.5)';
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, blackHole.radius * 1.4, blackHole.radius * 0.3, Math.PI/4, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Tertiary disk
+        ctx.strokeStyle = 'rgba(160, 40, 255, 0.4)';
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, blackHole.radius * 1.6, blackHole.radius * 0.2, -Math.PI/3, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Draw more swirling particles with varied colors
+        for (let i = 0; i < 40; i++) {
+            const angle = (i / 40) * Math.PI * 2 + blackHole.rotationAngle * (2 + i * 0.05);
+            const distance = blackHole.radius + i * 6;
+            const x = Math.cos(angle) * distance;
+            const y = Math.sin(angle) * distance * 0.4;
+            
+            // Alternate between purple and blue particles
+            const hue = (i % 3 === 0) ? 270 : (i % 3 === 1) ? 220 : 290;
+            const saturation = 70 + Math.sin(i * 0.5) * 30;
+            const lightness = 50 + Math.cos(i * 0.3) * 20;
+            
+            ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.9 - i * 0.02})`;
+            ctx.beginPath();
+            ctx.arc(x, y, 6 - i * 0.1, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Add some smaller particles for more detail
+            if (i % 3 === 0) {
+                const smallAngle = angle + 0.2;
+                const smallDistance = distance - 10;
+                const smallX = Math.cos(smallAngle) * smallDistance;
+                const smallY = Math.sin(smallAngle) * smallDistance * 0.4;
+                
+                ctx.fillStyle = `rgba(200, 200, 255, ${0.7 - i * 0.02})`;
+                ctx.beginPath();
+                ctx.arc(smallX, smallY, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Add light streaks for dramatic effect
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2 + blackHole.rotationAngle;
+            
+            ctx.strokeStyle = `rgba(150, 100, 255, 0.3)`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(
+                Math.cos(angle) * blackHole.outerRadius * 1.5,
+                Math.sin(angle) * blackHole.outerRadius * 1.5
+            );
+            ctx.stroke();
+        }
+        
+        ctx.restore();
+    }
+}
+
+// Reset the game to initial state
+function resetGame() {
+    // Reset player position and properties
+    gameState.player = {
+        x: 50,
+        y: 400,
+        width: 30,
+        height: 50,
+        velocityX: 0,
+        velocityY: 0,
+        isJumping: false,
+        color: '#4fc3f7',
+        isDead: false,
+        deathAnimation: {
+            progress: 0,
+            maxProgress: 60,
+            particles: []
+        },
+        hasJetpack: false,
+        jetpackFuel: 0,
+        maxJetpackFuel: 200,
+        jetpackActive: false,
+        hasSuperJetpack: false
+    };
+    
+    // Reset camera position
+    camera.x = 0;
+    camera.y = 0;
+    
+    // Reset black hole state
+    gameState.blackHole.hasWon = false;
+    
+    // Reset game state
+    gameState.gameOver = false;
+    gameState.gameTime = 0;
+    gameState.rewindEnergy = 100;
+    gameState.isRewinding = false;
+    gameState.pastStates = [];
+    
+    // Reset any other game state variables as needed
+    
+    // Restart the game loop
+    requestAnimationFrame(gameLoop);
+}
+
+// Check if player has reached the black hole (victory condition)
+function checkBlackHoleVictory() {
+    const blackHole = gameState.blackHole;
+    const player = gameState.player;
+    
+    // Calculate distance between player and black hole center
+    const dx = player.x - blackHole.x;
+    const dy = player.y - blackHole.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // If player is close enough to the black hole
+    if (distance < blackHole.radius * 1.5 && !blackHole.hasWon) {
+        // Player has won!
+        blackHole.hasWon = true;
+        
+        // Create a visual effect of player being sucked into the black hole
+        // This will be a quick animation before reset
+        player.velocityX = (blackHole.x - player.x) * 0.1;
+        player.velocityY = (blackHole.y - player.y) * 0.1;
+        
+        // Stop Cthulhu music if it's playing and restart background music
+        const horrorSound = document.getElementById('horrorBegins');
+        if (horrorSound) {
+            horrorSound.pause();
+            horrorSound.currentTime = 0;
+        }
+        
+        const backgroundMusic = document.getElementById('backgroundMusic');
+        if (backgroundMusic) {
+            backgroundMusic.play().catch(err => console.log('Music playback failed:', err));
+        }
+        
+        // Reset the game immediately without message or delay
+        resetGame();
+    }
+}
