@@ -1705,8 +1705,14 @@ function updateCthulhu() {
         
         // Move toward player
         if (distance > 50) { // Don't move if very close
-            cthulhu.velocityX = (dx / distance) * cthulhu.speed;
-            cthulhu.velocityY = (dy / distance) * cthulhu.speed;
+            // Calculate dynamic speed based on distance
+            // The farther away Cthulhu is, the faster it moves
+            const baseSpeed = cthulhu.speed;
+            const distanceFactor = Math.min(3, distance / 500); // Cap the speed multiplier at 3x
+            const dynamicSpeed = baseSpeed * distanceFactor;
+            
+            cthulhu.velocityX = (dx / distance) * dynamicSpeed;
+            cthulhu.velocityY = (dy / distance) * dynamicSpeed;
             
             cthulhu.x += cthulhu.velocityX;
             cthulhu.y += cthulhu.velocityY;
