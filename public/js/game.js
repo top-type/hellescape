@@ -180,7 +180,7 @@ const gameState = {
         height: 300,
         velocityX: 0,
         velocityY: 0,
-        speed: 4.0, // Chase speed (increased from 1.5 to make Cthulhu much quicker)
+        speed: 6.0, // Chase speed (increased from 4.0 to make Cthulhu even quicker)
         activationHeight: -9000, // Changed from -5000 to match the deeper position
         tentacles: [], // Will store tentacle positions
         glowIntensity: 0, // For pulsating red glow effect
@@ -1708,7 +1708,7 @@ function updateCthulhu() {
             // Calculate dynamic speed based on distance
             // The farther away Cthulhu is, the faster it moves
             const baseSpeed = cthulhu.speed;
-            const distanceFactor = Math.min(3, distance / 500); // Cap the speed multiplier at 3x
+            const distanceFactor = Math.min(5, distance / 300); // Increased cap to 5x and reduced distance threshold to 300
             const dynamicSpeed = baseSpeed * distanceFactor;
             
             cthulhu.velocityX = (dx / distance) * dynamicSpeed;
