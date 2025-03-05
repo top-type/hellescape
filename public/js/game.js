@@ -110,32 +110,7 @@ const gameState = {
     ],
     // Add deadly traps
     traps: [
-        // First section traps
-        { x: 350, y: 430, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 500, y: 430, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        
-        // Second section traps
-        { x: 950, y: 480, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 1150, y: 480, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        
-        // Third section traps
-        { x: 1450, y: 430, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 1650, y: 430, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        
-        // Fourth section traps
-        { x: 2050, y: 480, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 2150, y: 480, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        
-        // Fifth section traps
-        { x: 2450, y: 430, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 2650, y: 430, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        
-        // Floating platform traps
-        { x: 225, y: 330, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 1075, y: 330, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 1575, y: 280, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 2175, y: 330, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
-        { x: 2575, y: 280, width: 50, height: 20, color: '#ff0000', type: 'spikes' },
+        // Empty array - all traps removed
     ],
     coins: [
         // First section coins
@@ -200,13 +175,13 @@ const gameState = {
     cthulhu: {
         active: false,
         x: 0,
-        y: -6000, // Starting position much deeper in space
+        y: -10000, // Changed from -6000 to move Cthulhu much deeper in space
         width: 200, // Huge monster
         height: 300,
         velocityX: 0,
         velocityY: 0,
         speed: 1.5, // Chase speed
-        activationHeight: -5000, // Much deeper activation height
+        activationHeight: -9000, // Changed from -5000 to match the deeper position
         tentacles: [], // Will store tentacle positions
         glowIntensity: 0, // For pulsating red glow effect
         glowDirection: 0.02, // Rate of glow change
