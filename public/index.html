@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Jump Platformer</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div class="controls">
+            <div class="info">
+                <span id="timeInfo">Time: 0s</span>
+                <span id="rewindInfo">Rewind Energy: 100%</span>
+            </div>
+            <div class="buttons">
+                <button id="rewindBtn" style="display: none;">REWIND TIME</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="instructions">
+        <h2>Controls:</h2>
+        <p>Arrow Keys or A/D: Move left/right</p>
+        <p>Up Arrow, W, or Space: Jump</p>
+        <p>Down Arrow or S: Activate jetpack (when collected)</p>
+        <p>Hold R key: Rewind time (especially after death)</p>
+        <h2>Items:</h2>
+        <p><span style="color: #ffa500;">■</span> Jetpack: Allows vertical flight with limited fuel</p>
+        <p><span style="color: #00ff00;">■</span> Fuel Canisters: Refill jetpack fuel</p>
+        <p><span style="color: #ff0000;">▲</span> Spikes: Deadly traps - avoid at all costs!</p>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html> 
