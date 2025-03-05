@@ -195,6 +195,24 @@ const gameState = {
     rewindEnergy: 100, // Percentage of rewind energy available
     maxRewindFrames: 600, // Maximum number of frames we can rewind (10 seconds at 60fps)
     lastUpdateTime: 0, // For frame rate control
+    
+    // Add Cthulhu monster
+    cthulhu: {
+        active: false,
+        x: 0,
+        y: -6000, // Starting position much deeper in space
+        width: 200, // Huge monster
+        height: 300,
+        velocityX: 0,
+        velocityY: 0,
+        speed: 1.5, // Chase speed
+        activationHeight: -5000, // Much deeper activation height
+        tentacles: [], // Will store tentacle positions
+        glowIntensity: 0, // For pulsating red glow effect
+        glowDirection: 0.02, // Rate of glow change
+        attackCooldown: 0,
+        attackRange: 300 // Distance at which it can attack
+    },
 };
 
 // Game physics constants
@@ -919,7 +937,10 @@ function draw() {
     
     // Draw fuel canisters
     drawFuelCanisters();
-
+    
+    // Draw Cthulhu monster
+    drawCthulhu();
+    
     // Draw player (adjusted for camera position) or death animation
     if (gameState.player.isDead) {
         // Draw death particles
@@ -1177,6 +1198,7 @@ function gameLoop(timestamp) {
             rewindGameState();
         } else {
             updatePlayer();
+            updateCthulhu(); // Add Cthulhu update
             saveGameState();
             gameState.gameTime++;
             recoverRewindEnergy();
@@ -1667,5 +1689,181 @@ function drawPlayer() {
             2,
             2
         );
+    }
+}
+
+// Function to update the Cthulhu monster
+function updateCthulhu() {
+    const cthulhu = gameState.cthulhu;
+    
+    // Check if player is high enough to activate Cthulhu
+    if (!cthulhu.active && gameState.player.y < cthulhu.activationHeight) {
+        cthulhu.active = true;
+        // Position Cthulhu off-screen when activated
+        cthulhu.x = gameState.player.x + 1000;
+        cthulhu.y = gameState.player.y - 500;
+        
+        // Initialize tentacles
+        cthulhu.tentacles = [];
+        for (let i = 0; i < 8; i++) {
+            cthulhu.tentacles.push({
+                length: 50 + Math.random() * 100,
+                angle: Math.random() * Math.PI * 2,
+                speed: 0.02 + Math.random() * 0.03,
+                segments: 5 + Math.floor(Math.random() * 3)
+            });
+        }
+    }
+    
+    // Update Cthulhu if active
+    if (cthulhu.active) {
+        // Update glow effect
+        cthulhu.glowIntensity += cthulhu.glowDirection;
+        if (cthulhu.glowIntensity > 1 || cthulhu.glowIntensity < 0) {
+            cthulhu.glowDirection *= -1;
+        }
+        
+        // Calculate direction to player
+        const dx = gameState.player.x - cthulhu.x;
+        const dy = gameState.player.y - cthulhu.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Move toward player
+        if (distance > 50) { // Don't move if very close
+            cthulhu.velocityX = (dx / distance) * cthulhu.speed;
+            cthulhu.velocityY = (dy / distance) * cthulhu.speed;
+            
+            cthulhu.x += cthulhu.velocityX;
+            cthulhu.y += cthulhu.velocityY;
+        }
+        
+        // Update tentacle animations
+        for (const tentacle of cthulhu.tentacles) {
+            tentacle.angle += tentacle.speed;
+        }
+        
+        // Attack player if in range
+        if (distance < cthulhu.attackRange && cthulhu.attackCooldown <= 0) {
+            // Check for collision with player
+            if (checkCollision(
+                {
+                    x: cthulhu.x - cthulhu.width/2,
+                    y: cthulhu.y - cthulhu.height/2,
+                    width: cthulhu.width,
+                    height: cthulhu.height
+                },
+                gameState.player
+            )) {
+                killPlayer();
+            }
+            
+            // Set attack cooldown
+            cthulhu.attackCooldown = 60; // 1 second at 60fps
+        }
+        
+        // Decrease attack cooldown
+        if (cthulhu.attackCooldown > 0) {
+            cthulhu.attackCooldown--;
+        }
+    }
+}
+
+// Function to draw the Cthulhu monster
+function drawCthulhu() {
+    const cthulhu = gameState.cthulhu;
+    
+    if (cthulhu.active && isVisible({
+        x: cthulhu.x - cthulhu.width/2,
+        y: cthulhu.y - cthulhu.height/2,
+        width: cthulhu.width,
+        height: cthulhu.height
+    })) {
+        // Save context for transformations
+        ctx.save();
+        
+        // Create a red glow effect
+        const glowRadius = 100 + cthulhu.glowIntensity * 50;
+        const gradient = ctx.createRadialGradient(
+            cthulhu.x - camera.x, cthulhu.y - camera.y,
+            0,
+            cthulhu.x - camera.x, cthulhu.y - camera.y,
+            glowRadius
+        );
+        gradient.addColorStop(0, `rgba(255, 0, 0, ${0.3 + cthulhu.glowIntensity * 0.2})`);
+        gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+        
+        // Draw the glow
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(cthulhu.x - camera.x, cthulhu.y - camera.y, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw the main body (pitch black with slight red tint)
+        ctx.fillStyle = 'rgba(10, 0, 0, 0.9)';
+        ctx.beginPath();
+        ctx.ellipse(
+            cthulhu.x - camera.x,
+            cthulhu.y - camera.y,
+            cthulhu.width / 2,
+            cthulhu.height / 2,
+            0, 0, Math.PI * 2
+        );
+        ctx.fill();
+        
+        // Draw eyes (glowing red)
+        const eyeSize = 15;
+        const eyeSpacing = 40;
+        
+        ctx.fillStyle = `rgba(255, 0, 0, ${0.7 + cthulhu.glowIntensity * 0.3})`;
+        
+        // Left eye
+        ctx.beginPath();
+        ctx.arc(
+            cthulhu.x - camera.x - eyeSpacing,
+            cthulhu.y - camera.y - 30,
+            eyeSize, 0, Math.PI * 2
+        );
+        ctx.fill();
+        
+        // Right eye
+        ctx.beginPath();
+        ctx.arc(
+            cthulhu.x - camera.x + eyeSpacing,
+            cthulhu.y - camera.y - 30,
+            eyeSize, 0, Math.PI * 2
+        );
+        ctx.fill();
+        
+        // Draw tentacles
+        ctx.strokeStyle = 'rgba(10, 0, 0, 0.9)';
+        ctx.lineWidth = 10;
+        
+        for (const tentacle of cthulhu.tentacles) {
+            ctx.beginPath();
+            
+            // Start at the body
+            let startX = cthulhu.x - camera.x;
+            let startY = cthulhu.y - camera.y + cthulhu.height/3;
+            
+            ctx.moveTo(startX, startY);
+            
+            // Draw tentacle segments
+            for (let i = 1; i <= tentacle.segments; i++) {
+                const segmentLength = tentacle.length / tentacle.segments;
+                const segmentAngle = tentacle.angle + Math.sin(gameState.gameTime * 0.05 + i) * 0.5;
+                
+                const endX = startX + Math.cos(segmentAngle + i * 0.5) * segmentLength;
+                const endY = startY + Math.sin(segmentAngle + i * 0.5) * segmentLength;
+                
+                ctx.lineTo(endX, endY);
+                
+                startX = endX;
+                startY = endY;
+            }
+            
+            ctx.stroke();
+        }
+        
+        ctx.restore();
     }
 } 
