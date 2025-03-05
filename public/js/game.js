@@ -180,13 +180,14 @@ const gameState = {
         height: 300,
         velocityX: 0,
         velocityY: 0,
-        speed: 6.0, // Chase speed (increased from 4.0 to make Cthulhu even quicker)
+        speed: 2.5, // Chase speed (reduced from 6.0 to make Cthulhu slower)
         activationHeight: -9000, // Changed from -5000 to match the deeper position
         tentacles: [], // Will store tentacle positions
         glowIntensity: 0, // For pulsating red glow effect
         glowDirection: 0.02, // Rate of glow change
         attackCooldown: 0,
-        attackRange: 300 // Distance at which it can attack
+        attackRange: 300, // Distance at which it can attack
+        soundPlayed: false // Track if the horror sound has been played
     },
 };
 
@@ -1678,6 +1679,15 @@ function updateCthulhu() {
         cthulhu.x = gameState.player.x + 1000;
         cthulhu.y = gameState.player.y - 500;
         
+        // Play horror sound when Cthulhu first appears
+        const horrorSound = document.getElementById('horrorBegins');
+        if (horrorSound && !cthulhu.soundPlayed) {
+            horrorSound.volume = 0.7; // Set volume to 70%
+            horrorSound.currentTime = 0; // Reset to beginning
+            horrorSound.play().catch(e => console.log('Error playing sound:', e));
+            cthulhu.soundPlayed = true;
+        }
+        
         // Initialize tentacles
         cthulhu.tentacles = [];
         for (let i = 0; i < 8; i++) {
@@ -1708,7 +1718,7 @@ function updateCthulhu() {
             // Calculate dynamic speed based on distance
             // The farther away Cthulhu is, the faster it moves
             const baseSpeed = cthulhu.speed;
-            const distanceFactor = Math.min(5, distance / 300); // Increased cap to 5x and reduced distance threshold to 300
+            const distanceFactor = Math.min(5, distance / 300); // Reduced cap to 2x and increased distance threshold to 500
             const dynamicSpeed = baseSpeed * distanceFactor;
             
             cthulhu.velocityX = (dx / distance) * dynamicSpeed;
