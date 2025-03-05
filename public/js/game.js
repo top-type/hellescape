@@ -218,6 +218,12 @@ const keys = {
 
 // Event listeners for keyboard controls
 window.addEventListener('keydown', (e) => {
+    // Start background music on first key press
+    if (!musicStarted) {
+        backgroundMusic.play().catch(err => console.log('Music playback failed:', err));
+        musicStarted = true;
+    }
+    
     // Only process movement keys if player is not dead
     if (!gameState.player.isDead) {
         switch(e.key) {
@@ -1188,6 +1194,11 @@ function gameLoop(timestamp) {
 
 // Start the game
 requestAnimationFrame(gameLoop);
+
+// Initialize background music
+const backgroundMusic = document.getElementById('backgroundMusic');
+backgroundMusic.volume = 0.5; // Set volume to 50%
+let musicStarted = false;
 
 // Add space-themed collectibles at higher altitudes
 function initializeSpaceCollectibles() {
