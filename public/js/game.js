@@ -180,7 +180,7 @@ const gameState = {
         height: 300,
         velocityX: 0,
         velocityY: 0,
-        speed: 1.5, // Chase speed
+        speed: 4.0, // Chase speed (increased from 1.5 to make Cthulhu much quicker)
         activationHeight: -9000, // Changed from -5000 to match the deeper position
         tentacles: [], // Will store tentacle positions
         glowIntensity: 0, // For pulsating red glow effect
