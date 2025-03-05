@@ -180,7 +180,7 @@ const gameState = {
         height: 300,
         velocityX: 0,
         velocityY: 0,
-        speed: 2.5, // Chase speed (reduced from 6.0 to make Cthulhu slower)
+        speed: 4.0, // Increased from 2.5 to make Cthulhu faster
         activationHeight: -9000, // Changed from -5000 to match the deeper position
         tentacles: [], // Will store tentacle positions
         glowIntensity: 0, // For pulsating red glow effect
@@ -1689,6 +1689,13 @@ function updateCthulhu() {
         // Position Cthulhu off-screen when activated
         cthulhu.x = gameState.player.x + 1000;
         cthulhu.y = gameState.player.y - 500;
+        
+        // Stop background music when Cthulhu appears
+        const backgroundMusic = document.getElementById('backgroundMusic');
+        if (backgroundMusic) {
+            backgroundMusic.pause();
+            backgroundMusic.currentTime = 0;
+        }
         
         // Play horror sound when Cthulhu first appears
         const horrorSound = document.getElementById('horrorBegins');
