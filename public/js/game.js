@@ -39,10 +39,11 @@ const gameState = {
         hasJetpack: false,
         jetpackFuel: 0,
         maxJetpackFuel: 100,
-        jetpackActive: false
+        jetpackActive: false,
+        hasSuperJetpack: false
     },
     worldWidth: 3000,  // Much wider world
-    worldHeight: 1000, // Taller world
+    worldHeight: 1000, // Base height for the world (only used for bottom boundary)
     platforms: [
         // Ground platforms
         { x: 0, y: 450, width: 800, height: 50, color: '#3a3a3a' },
@@ -79,12 +80,33 @@ const gameState = {
         { x: 2200, y: 250, width: 100, height: 20, color: '#3a3a3a' },
         { x: 2050, y: 200, width: 100, height: 20, color: '#3a3a3a' },
         
-        // Floating platforms - fifth section
-        { x: 2400, y: 350, width: 100, height: 20, color: '#3a3a3a' },
-        { x: 2550, y: 300, width: 100, height: 20, color: '#3a3a3a' },
-        { x: 2700, y: 250, width: 100, height: 20, color: '#3a3a3a' },
-        { x: 2600, y: 200, width: 100, height: 20, color: '#3a3a3a' },
-        { x: 2450, y: 150, width: 100, height: 20, color: '#3a3a3a' },
+        // High altitude platforms - path to space
+        { x: 150, y: 0, width: 100, height: 20, color: '#4a4a4a' },
+        { x: 300, y: -100, width: 100, height: 20, color: '#4a4a4a' },
+        { x: 450, y: -200, width: 100, height: 20, color: '#4a4a4a' },
+        { x: 600, y: -300, width: 100, height: 20, color: '#4a4a4a' },
+        { x: 750, y: -400, width: 100, height: 20, color: '#4a4a4a' },
+        { x: 900, y: -500, width: 100, height: 20, color: '#4a4a4a' },
+        
+        // Space station platforms - very high altitude
+        { x: 1100, y: -700, width: 300, height: 30, color: '#555555' },
+        { x: 1000, y: -750, width: 50, height: 50, color: '#666666' },
+        { x: 1450, y: -750, width: 50, height: 50, color: '#666666' },
+        { x: 1100, y: -850, width: 300, height: 30, color: '#555555' },
+        
+        // Asteroid platforms - scattered at extreme heights
+        { x: 500, y: -1200, width: 80, height: 80, color: '#444444' },
+        { x: 700, y: -1500, width: 120, height: 60, color: '#444444' },
+        { x: 1000, y: -1800, width: 100, height: 100, color: '#444444' },
+        { x: 1300, y: -2100, width: 90, height: 70, color: '#444444' },
+        { x: 1600, y: -2400, width: 110, height: 80, color: '#444444' },
+        { x: 1900, y: -2700, width: 100, height: 90, color: '#444444' },
+        { x: 2200, y: -3000, width: 120, height: 100, color: '#444444' },
+        
+        // Space station at extreme height
+        { x: 1000, y: -4000, width: 500, height: 50, color: '#777777' },
+        { x: 1100, y: -4050, width: 300, height: 50, color: '#666666' },
+        { x: 1200, y: -4100, width: 100, height: 50, color: '#555555' },
     ],
     // Add deadly traps
     traps: [
@@ -175,17 +197,18 @@ const gameState = {
     lastUpdateTime: 0, // For frame rate control
 };
 
-// Constants - Increased gravity and speed for quicker gameplay
-const GRAVITY = 0.5;  // Increased from 0.3
-const JUMP_FORCE = -10; // Stronger jump to compensate for higher gravity
-const MOVE_SPEED = 5.0;  // Increased from 3.5 for faster movement
+// Game physics constants
+const GRAVITY = 0.5;
+const JUMP_FORCE = -12;
+const MOVE_SPEED = 5;
 const FRICTION = 0.8;
+const JETPACK_THRUST = -0.5;
+const JETPACK_FUEL_CONSUMPTION = 1;
+const FRAME_RATE = 60;
+const FRAME_DELAY = 1000 / FRAME_RATE; // Time between frames in milliseconds
 const REWIND_ENERGY_DEPLETION_RATE = 0.3;
 const REWIND_ENERGY_RECOVERY_RATE = 0.2;
-const FRAME_RATE = 60; // Increased from 30 for smoother gameplay
-const FRAME_DELAY = 1000 / FRAME_RATE;
-const JETPACK_THRUST = -0.8; // Increased from -0.3 to make it powerful enough to overcome gravity
-const JETPACK_FUEL_CONSUMPTION = 0.5; // Fuel consumption rate
+const MAX_REWIND_ENERGY = 100; // Maximum rewind energy value
 
 // Time history for rewinding
 const gameHistory = [];
@@ -284,8 +307,12 @@ function updateCamera() {
     const idealY = gameState.player.y - camera.height / 2 + gameState.player.height / 2;
     
     // Update camera position with bounds checking
+    // Horizontal bounds: don't go past the left or right edge of the world
     camera.x = Math.max(0, Math.min(idealX, gameState.worldWidth - camera.width));
-    camera.y = Math.max(0, Math.min(idealY, gameState.worldHeight - camera.height));
+    
+    // Vertical position: ALWAYS follow the player with NO bounds
+    // This allows the camera to follow the player as high as they go
+    camera.y = idealY;
 }
 
 // Check if an object is visible within the camera view
@@ -356,102 +383,60 @@ function checkTrapCollisions() {
 
 // Draw jetpack flames when active
 function drawJetpackFlames() {
-    if (gameState.player.jetpackActive && gameState.player.jetpackFuel > 0 && keys.jetpack) {
-        // Draw flame particles
-        const flameX = gameState.player.x + gameState.player.width / 2 - camera.x;
-        const flameY = gameState.player.y + gameState.player.height - camera.y;
+    if (!gameState.player.hasJetpack || gameState.player.isDead || gameState.player.jetpackFuel <= 0) return;
+    
+    if (keys.jetpack) {
+        const isSuperJetpack = gameState.player.hasSuperJetpack;
+        const flameX = gameState.player.x - camera.x - 5;
+        const flameY = gameState.player.y - camera.y + 45;
         
-        // Create gradient for flame
-        const gradient = ctx.createLinearGradient(flameX, flameY, flameX, flameY + 40); // Even longer flame
-        gradient.addColorStop(0, '#ff9900');
-        gradient.addColorStop(0.6, '#ff0000');
-        gradient.addColorStop(1, 'rgba(255, 0, 0, 0.3)'); // Fade out at the end
+        // Create flame gradient
+        const flameGradient = ctx.createLinearGradient(
+            flameX, flameY,
+            flameX, flameY + 20
+        );
         
-        // Draw main flame with randomized shape for more dynamic effect
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        
-        // Start points (with slight randomization)
-        const leftX = flameX - 15 + (Math.random() - 0.5) * 3;
-        const rightX = flameX + 15 + (Math.random() - 0.5) * 3;
-        
-        // Control points for curve
-        const ctrlX1 = flameX - 10 + (Math.random() - 0.5) * 5;
-        const ctrlY1 = flameY + 15 + (Math.random() - 0.5) * 5;
-        const ctrlX2 = flameX + 10 + (Math.random() - 0.5) * 5;
-        const ctrlY2 = flameY + 15 + (Math.random() - 0.5) * 5;
-        
-        // End point with randomization
-        const endY = flameY + 40 + (Math.random() - 0.5) * 5;
-        
-        ctx.moveTo(leftX, flameY);
-        ctx.quadraticCurveTo(ctrlX1, ctrlY1, flameX, endY);
-        ctx.quadraticCurveTo(ctrlX2, ctrlY2, rightX, flameY);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Draw smaller inner flame with more vibrant colors
-        const innerGradient = ctx.createLinearGradient(flameX, flameY, flameX, flameY + 25);
-        innerGradient.addColorStop(0, '#ffffff'); // White hot center
-        innerGradient.addColorStop(0.4, '#ffff00');
-        innerGradient.addColorStop(1, '#ff9900');
-        
-        ctx.fillStyle = innerGradient;
-        ctx.beginPath();
-        
-        // Inner flame with slight randomization
-        const innerLeftX = flameX - 8 + (Math.random() - 0.5) * 2;
-        const innerRightX = flameX + 8 + (Math.random() - 0.5) * 2;
-        const innerEndY = flameY + 25 + (Math.random() - 0.5) * 3;
-        
-        ctx.moveTo(innerLeftX, flameY);
-        ctx.quadraticCurveTo(flameX - 3, flameY + 15, flameX, innerEndY);
-        ctx.quadraticCurveTo(flameX + 3, flameY + 15, innerRightX, flameY);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Add some random flame particles for effect
-        for (let i = 0; i < 5; i++) {
-            const particleSize = Math.random() * 6 + 2;
-            const offsetX = (Math.random() - 0.5) * 15;
-            const offsetY = Math.random() * 25 + 15;
-            
-            // Create particle gradient for more realistic effect
-            const particleGradient = ctx.createRadialGradient(
-                flameX + offsetX, flameY + offsetY, 0,
-                flameX + offsetX, flameY + offsetY, particleSize
-            );
-            
-            if (Math.random() > 0.5) {
-                particleGradient.addColorStop(0, '#ffffff');
-                particleGradient.addColorStop(0.5, '#ffff00');
-                particleGradient.addColorStop(1, 'rgba(255, 153, 0, 0)');
-            } else {
-                particleGradient.addColorStop(0, '#ffff00');
-                particleGradient.addColorStop(0.5, '#ff9900');
-                particleGradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
-            }
-            
-            ctx.fillStyle = particleGradient;
-            ctx.beginPath();
-            ctx.arc(
-                flameX + offsetX,
-                flameY + offsetY,
-                particleSize,
-                0,
-                Math.PI * 2
-            );
-            ctx.fill();
+        if (isSuperJetpack) {
+            // Super jetpack has blue-white flames
+            flameGradient.addColorStop(0, '#ffffff');
+            flameGradient.addColorStop(0.5, '#00ffff');
+            flameGradient.addColorStop(1, '#0088ff');
+        } else {
+            // Regular jetpack has orange-yellow flames
+            flameGradient.addColorStop(0, '#ffffff');
+            flameGradient.addColorStop(0.5, '#ffff00');
+            flameGradient.addColorStop(1, '#ff8800');
         }
         
-        // Add glow effect around the flames
-        ctx.shadowColor = '#ff9900';
-        ctx.shadowBlur = 15;
+        ctx.fillStyle = flameGradient;
+        
+        // Randomize flame shape
+        const flameHeight = 15 + Math.random() * 10;
+        const flameWidth = 5 + Math.random() * 3;
+        
+        // Left flame
         ctx.beginPath();
-        ctx.arc(flameX, flameY + 10, 10, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 153, 0, 0.1)';
+        ctx.moveTo(flameX - 8, flameY);
+        ctx.lineTo(flameX - 8 - flameWidth/2, flameY + flameHeight);
+        ctx.lineTo(flameX - 8 + flameWidth/2, flameY + flameHeight);
+        ctx.closePath();
         ctx.fill();
-        ctx.shadowBlur = 0; // Reset shadow
+        
+        // Right flame
+        ctx.beginPath();
+        ctx.moveTo(flameX, flameY);
+        ctx.lineTo(flameX - flameWidth/2, flameY + flameHeight);
+        ctx.lineTo(flameX + flameWidth/2, flameY + flameHeight);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Add glow effect for super jetpack
+        if (isSuperJetpack) {
+            ctx.fillStyle = 'rgba(0, 200, 255, 0.3)';
+            ctx.beginPath();
+            ctx.arc(flameX - 4, flameY + 10, 15, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 }
 
@@ -463,31 +448,58 @@ function updatePlayer() {
         return;
     }
     
+    // Determine if player is in space (negative y value)
+    const isInSpace = gameState.player.y < -500;
+    const spaceDepth = Math.min(1, Math.abs(gameState.player.y + 500) / 3500); // 0 at edge of space, 1 at -4000
+    
+    // Adjust physics based on altitude
+    const gravityFactor = isInSpace ? Math.max(0.1, 1 - spaceDepth * 0.9) : 1; // Reduced gravity in space
+    const currentGravity = GRAVITY * gravityFactor;
+    
     // Handle horizontal movement
     if (keys.left) {
         gameState.player.velocityX = -MOVE_SPEED;
     } else if (keys.right) {
         gameState.player.velocityX = MOVE_SPEED;
     } else {
-        gameState.player.velocityX *= FRICTION;
+        // Friction is reduced in space
+        const frictionFactor = isInSpace ? Math.max(0.95, 1 - spaceDepth * 0.2) : FRICTION;
+        gameState.player.velocityX *= frictionFactor;
     }
 
-    // Apply gravity
-    gameState.player.velocityY += GRAVITY;
+    // Apply gravity (reduced in space)
+    gameState.player.velocityY += currentGravity;
 
     // Handle jumping
     if (keys.up && !gameState.player.isJumping) {
-        gameState.player.velocityY = JUMP_FORCE;
+        // Jump force increases slightly in space
+        const jumpFactor = isInSpace ? 1 + spaceDepth * 0.3 : 1;
+        gameState.player.velocityY = JUMP_FORCE * jumpFactor;
         gameState.player.isJumping = true;
     }
     
     // Handle jetpack
     if (gameState.player.hasJetpack && keys.jetpack && gameState.player.jetpackFuel > 0) {
-        // Apply upward thrust - directly set velocity for immediate response
-        gameState.player.velocityY = JETPACK_THRUST * 5; // Stronger immediate thrust
+        // Check if player has super jetpack
+        const hasSuperJetpack = gameState.player.hasSuperJetpack;
         
-        // Consume fuel
-        gameState.player.jetpackFuel -= JETPACK_FUEL_CONSUMPTION;
+        // Apply upward thrust - directly set velocity for immediate response
+        // Super jetpack has stronger thrust
+        const thrustFactor = hasSuperJetpack ? 1.5 : 1;
+        // Thrust is more effective in space
+        const spaceThrustBonus = isInSpace ? 1 + spaceDepth * 0.5 : 1;
+        
+        gameState.player.velocityY = JETPACK_THRUST * 5 * thrustFactor * spaceThrustBonus;
+        
+        // Consume fuel (super jetpack uses less fuel)
+        const fuelConsumptionRate = hasSuperJetpack ? 
+            JETPACK_FUEL_CONSUMPTION * 0.5 : 
+            JETPACK_FUEL_CONSUMPTION;
+        
+        // Fuel consumption is reduced in space
+        const spaceFuelBonus = isInSpace ? 1 - spaceDepth * 0.5 : 1;
+        
+        gameState.player.jetpackFuel -= fuelConsumptionRate * spaceFuelBonus;
         
         // Ensure fuel doesn't go below 0
         if (gameState.player.jetpackFuel < 0) {
@@ -501,7 +513,7 @@ function updatePlayer() {
     gameState.player.y += gameState.player.velocityY;
 
     // Check platform collisions
-    gameState.player.isJumping = true; // Assume we're in the air unless proven otherwise
+    gameState.player.isJumping = true;
     
     for (const platform of gameState.platforms) {
         if (checkCollision(gameState.player, platform)) {
@@ -537,7 +549,8 @@ function updatePlayer() {
     for (const coin of gameState.coins) {
         if (!coin.collected && checkCollision(gameState.player, coin)) {
             coin.collected = true;
-            gameState.score += 10;
+            // Space coins are worth more
+            gameState.score += coin.value || 10;
         }
     }
     
@@ -545,6 +558,16 @@ function updatePlayer() {
     if (!gameState.jetpack.collected && checkCollision(gameState.player, gameState.jetpack)) {
         gameState.jetpack.collected = true;
         gameState.player.hasJetpack = true;
+        gameState.player.jetpackFuel = gameState.player.maxJetpackFuel;
+    }
+    
+    // Check super jetpack collision
+    if (gameState.superJetpack && !gameState.superJetpack.collected && 
+        checkCollision(gameState.player, gameState.superJetpack)) {
+        gameState.superJetpack.collected = true;
+        gameState.player.hasSuperJetpack = true;
+        // Refill fuel and increase max fuel capacity
+        gameState.player.maxJetpackFuel = 200;
         gameState.player.jetpackFuel = gameState.player.maxJetpackFuel;
     }
     
@@ -642,166 +665,229 @@ function recoverRewindEnergy() {
     }
 }
 
+// Draw platforms with special styling for high-altitude platforms
+function drawPlatforms() {
+    for (const platform of gameState.platforms) {
+        // Skip if not visible in camera view
+        if (!isVisible(platform)) continue;
+        
+        // Determine if this is a high-altitude platform (negative y value)
+        const isHighAltitude = platform.y < 0;
+        const isExtremeAltitude = platform.y < -1000;
+        
+        // Create different styles based on altitude
+        if (isExtremeAltitude) {
+            // Space station or asteroid style
+            if (platform.width > 200) {
+                // Space station style
+                // Main platform
+                ctx.fillStyle = '#888888';
+                ctx.fillRect(
+                    platform.x - camera.x,
+                    platform.y - camera.y,
+                    platform.width,
+                    platform.height
+                );
+                
+                // Add metallic details
+                ctx.fillStyle = '#aaaaaa';
+                ctx.fillRect(
+                    platform.x - camera.x + 10,
+                    platform.y - camera.y + 5,
+                    platform.width - 20,
+                    5
+                );
+                
+                // Add solar panels
+                ctx.fillStyle = '#4169E1';
+                ctx.fillRect(
+                    platform.x - camera.x - 50,
+                    platform.y - camera.y + 10,
+                    40,
+                    20
+                );
+                ctx.fillRect(
+                    platform.x - camera.x + platform.width + 10,
+                    platform.y - camera.y + 10,
+                    40,
+                    20
+                );
+                
+                // Add station lights
+                for (let i = 0; i < platform.width; i += 30) {
+                    ctx.fillStyle = `rgba(255, 255, 100, ${0.7 + Math.sin(gameState.gameTime * 0.05 + i) * 0.3})`;
+                    ctx.fillRect(
+                        platform.x - camera.x + i,
+                        platform.y - camera.y - 5,
+                        5,
+                        5
+                    );
+                }
+            } else if (platform.width === platform.height) {
+                // Asteroid style - round shape
+                const centerX = platform.x - camera.x + platform.width / 2;
+                const centerY = platform.y - camera.y + platform.height / 2;
+                const radius = platform.width / 2;
+                
+                // Create asteroid gradient
+                const asteroidGradient = ctx.createRadialGradient(
+                    centerX, centerY, 0,
+                    centerX, centerY, radius
+                );
+                asteroidGradient.addColorStop(0, '#555555');
+                asteroidGradient.addColorStop(0.7, '#444444');
+                asteroidGradient.addColorStop(1, '#333333');
+                
+                ctx.fillStyle = asteroidGradient;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Add crater details
+                ctx.fillStyle = '#333333';
+                ctx.beginPath();
+                ctx.arc(centerX - radius * 0.3, centerY - radius * 0.3, radius * 0.2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.arc(centerX + radius * 0.4, centerY + radius * 0.1, radius * 0.15, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // Irregular space debris
+                ctx.fillStyle = '#555555';
+                ctx.beginPath();
+                ctx.moveTo(platform.x - camera.x, platform.y - camera.y);
+                ctx.lineTo(platform.x - camera.x + platform.width, platform.y - camera.y);
+                ctx.lineTo(platform.x - camera.x + platform.width - 10, platform.y - camera.y + platform.height);
+                ctx.lineTo(platform.x - camera.x + 10, platform.y - camera.y + platform.height);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Add texture
+                ctx.fillStyle = '#444444';
+                ctx.fillRect(
+                    platform.x - camera.x + 10,
+                    platform.y - camera.y + 5,
+                    platform.width - 20,
+                    5
+                );
+            }
+        } else if (isHighAltitude) {
+            // High-altitude platforms (upper atmosphere)
+            // Create a metallic look
+            const platformGradient = ctx.createLinearGradient(
+                platform.x - camera.x,
+                platform.y - camera.y,
+                platform.x - camera.x,
+                platform.y - camera.y + platform.height
+            );
+            platformGradient.addColorStop(0, '#6a6a6a');
+            platformGradient.addColorStop(0.5, '#5a5a5a');
+            platformGradient.addColorStop(1, '#4a4a4a');
+            
+            ctx.fillStyle = platformGradient;
+            ctx.fillRect(
+                platform.x - camera.x,
+                platform.y - camera.y,
+                platform.width,
+                platform.height
+            );
+            
+            // Add metallic edge
+            ctx.fillStyle = '#7a7a7a';
+            ctx.fillRect(
+                platform.x - camera.x,
+                platform.y - camera.y,
+                platform.width,
+                3
+            );
+        } else {
+            // Regular ground-level platforms
+            // Create a subtle gradient for the platform
+            const platformGradient = ctx.createLinearGradient(
+                platform.x - camera.x,
+                platform.y - camera.y,
+                platform.x - camera.x,
+                platform.y - camera.y + platform.height
+            );
+            platformGradient.addColorStop(0, '#4a4a4a');
+            platformGradient.addColorStop(1, '#2a2a2a');
+            
+            ctx.fillStyle = platformGradient;
+            ctx.fillRect(
+                platform.x - camera.x,
+                platform.y - camera.y,
+                platform.width,
+                platform.height
+            );
+            
+            // Add a subtle texture to the platform
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            for (let i = 0; i < platform.width; i += 20) {
+                ctx.fillRect(
+                    platform.x - camera.x + i,
+                    platform.y - camera.y,
+                    10,
+                    platform.height
+                );
+            }
+        }
+    }
+}
+
 // Draw game elements
 function draw() {
     // Clear canvas
     ctx.fillStyle = '#1e1e1e';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw background with parallax effect
+    // Draw background with parallax effect and space transition based on height
     drawBackground();
     
     // Draw platforms (only those visible in camera view)
-    for (const platform of gameState.platforms) {
-        if (isVisible(platform)) {
-            ctx.fillStyle = platform.color;
-            ctx.fillRect(
-                platform.x - camera.x, 
-                platform.y - camera.y, 
-                platform.width, 
-                platform.height
-            );
-        }
-    }
+    drawPlatforms();
     
     // Draw traps (only those visible in camera view)
     for (const trap of gameState.traps) {
         if (isVisible(trap)) {
-            if (trap.type === 'spikes') {
-                // Draw spike trap with improved visuals
-                const trapX = trap.x - camera.x;
-                const trapY = trap.y - camera.y;
-                const spikeCount = 5;
-                const spikeWidth = trap.width / spikeCount;
-                
-                // Create metallic gradient for base
-                const baseGradient = ctx.createLinearGradient(
-                    trapX, trapY + 10, 
-                    trapX, trapY + trap.height
-                );
-                baseGradient.addColorStop(0, '#8a0303'); // Dark red
-                baseGradient.addColorStop(0.5, '#cc0000'); // Medium red
-                baseGradient.addColorStop(1, '#8a0303'); // Dark red again
-                
-                // Draw base with metallic effect
-                ctx.fillStyle = baseGradient;
-                ctx.fillRect(trapX, trapY + 10, trap.width, trap.height - 10);
-                
-                // Add metallic highlights to base
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-                ctx.fillRect(trapX, trapY + 11, trap.width, 2);
-                
-                // Create spike gradient
-                const spikeGradient = ctx.createLinearGradient(
-                    trapX, trapY, 
-                    trapX, trapY + 10
-                );
-                spikeGradient.addColorStop(0, '#ff3333'); // Bright red at tip
-                spikeGradient.addColorStop(1, '#aa0000'); // Darker red at base
-                
-                // Draw spikes with metallic effect
-                ctx.fillStyle = spikeGradient;
-                ctx.beginPath();
-                for (let i = 0; i < spikeCount; i++) {
-                    const startX = trapX + i * spikeWidth;
-                    ctx.moveTo(startX, trapY + 10);
-                    ctx.lineTo(startX + spikeWidth/2, trapY);
-                    ctx.lineTo(startX + spikeWidth, trapY + 10);
-                }
-                ctx.fill();
-                
-                // Add shine to spike tips
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-                ctx.beginPath();
-                for (let i = 0; i < spikeCount; i++) {
-                    const tipX = trapX + i * spikeWidth + spikeWidth/2;
-                    ctx.fillRect(tipX - 1, trapY + 1, 2, 2);
-                }
-                
-                // Add glow effect for danger
-                ctx.shadowColor = '#ff0000';
-                ctx.shadowBlur = 10;
-                ctx.beginPath();
-                for (let i = 0; i < spikeCount; i++) {
-                    const tipX = trapX + i * spikeWidth + spikeWidth/2;
-                    ctx.fillRect(tipX, trapY, 1, 1);
-                }
-                ctx.shadowBlur = 0;
-            }
-        }
-    }
-
-    // Draw coins (only those visible in camera view)
-    for (const coin of gameState.coins) {
-        if (!coin.collected && isVisible(coin)) {
-            // Create shiny gold gradient
-            const coinX = coin.x + coin.width/2 - camera.x;
-            const coinY = coin.y + coin.height/2 - camera.y;
-            const coinRadius = coin.width/2;
-            
-            // Add glow effect
-            ctx.shadowColor = '#ffdf00';
-            ctx.shadowBlur = 10;
-            
-            // Create gold gradient
-            const coinGradient = ctx.createRadialGradient(
-                coinX - coinRadius/3, coinY - coinRadius/3, 0,
-                coinX, coinY, coinRadius
+            // Create a gradient for the trap
+            const trapGradient = ctx.createLinearGradient(
+                trap.x - camera.x,
+                trap.y - camera.y,
+                trap.x - camera.x,
+                trap.y - camera.y + trap.height
             );
-            coinGradient.addColorStop(0, '#ffffff'); // Highlight
-            coinGradient.addColorStop(0.2, '#ffdf00'); // Bright gold
-            coinGradient.addColorStop(0.8, '#ffa500'); // Orange gold
-            coinGradient.addColorStop(1, '#ff8c00'); // Dark gold
+            trapGradient.addColorStop(0, '#ff0000'); // Bright red at top
+            trapGradient.addColorStop(1, '#880000'); // Dark red at bottom
             
-            // Draw main coin circle
-            ctx.fillStyle = coinGradient;
+            ctx.fillStyle = trapGradient;
+            
+            // Draw spike shape
             ctx.beginPath();
-            ctx.arc(
-                coinX, 
-                coinY, 
-                coinRadius, 
-                0, 
-                Math.PI * 2
-            );
-            ctx.fill();
-            
-            // Add spinning animation
-            const spinAngle = (gameState.gameTime * 0.1) % (Math.PI * 2);
-            const squishFactor = Math.abs(Math.sin(spinAngle)) * 0.3 + 0.7;
-            
-            // Draw inner details (dollar sign or star)
-            ctx.fillStyle = '#ffffff';
-            
-            // Draw a star shape
-            const starPoints = 5;
-            const innerRadius = coinRadius * 0.3;
-            const outerRadius = coinRadius * 0.6;
-            
-            ctx.beginPath();
-            for (let i = 0; i < starPoints * 2; i++) {
-                const radius = i % 2 === 0 ? outerRadius : innerRadius;
-                const angle = (i * Math.PI / starPoints) + spinAngle;
-                const x = coinX + Math.cos(angle) * radius * squishFactor;
-                const y = coinY + Math.sin(angle) * radius;
-                
-                if (i === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    ctx.lineTo(x, y);
-                }
-            }
+            ctx.moveTo(trap.x - camera.x, trap.y - camera.y + trap.height);
+            ctx.lineTo(trap.x - camera.x + trap.width / 2, trap.y - camera.y);
+            ctx.lineTo(trap.x - camera.x + trap.width, trap.y - camera.y + trap.height);
             ctx.closePath();
             ctx.fill();
             
-            // Reset shadow
-            ctx.shadowBlur = 0;
+            // Add metallic base
+            ctx.fillStyle = '#555555';
+            ctx.fillRect(
+                trap.x - camera.x,
+                trap.y - camera.y + trap.height - 5,
+                trap.width,
+                5
+            );
         }
     }
+    
+    // Draw coins
+    drawCoins();
     
     // Draw jetpack if not collected
     if (!gameState.jetpack.collected && isVisible(gameState.jetpack)) {
         // Draw jetpack body
-        ctx.fillStyle = gameState.jetpack.color;
+        ctx.fillStyle = '#ff8800';
         ctx.fillRect(
             gameState.jetpack.x - camera.x,
             gameState.jetpack.y - camera.y,
@@ -809,23 +895,17 @@ function draw() {
             gameState.jetpack.height
         );
         
-        // Draw jetpack straps
-        ctx.fillStyle = '#8B4513';
+        // Draw jetpack details
+        ctx.fillStyle = '#cc6600';
         ctx.fillRect(
-            gameState.jetpack.x - camera.x - 5,
-            gameState.jetpack.y - camera.y + 5,
-            5,
-            10
-        );
-        ctx.fillRect(
-            gameState.jetpack.x - camera.x + gameState.jetpack.width,
-            gameState.jetpack.y - camera.y + 5,
-            5,
+            gameState.jetpack.x - camera.x,
+            gameState.jetpack.y - camera.y + gameState.jetpack.height - 10,
+            gameState.jetpack.width,
             10
         );
         
         // Draw nozzles
-        ctx.fillStyle = '#555555';
+        ctx.fillStyle = '#444444';
         ctx.fillRect(
             gameState.jetpack.x - camera.x + 5,
             gameState.jetpack.y - camera.y + gameState.jetpack.height,
@@ -841,77 +921,763 @@ function draw() {
     }
     
     // Draw fuel canisters
-    for (const fuel of gameState.fuelCanisters) {
-        if (!fuel.collected && isVisible(fuel)) {
-            // Draw canister body
-            ctx.fillStyle = fuel.color;
-            ctx.fillRect(
-                fuel.x - camera.x,
-                fuel.y - camera.y,
-                fuel.width,
-                fuel.height
-            );
-            
-            // Draw canister cap
-            ctx.fillStyle = '#555555';
-            ctx.fillRect(
-                fuel.x - camera.x,
-                fuel.y - camera.y,
-                fuel.width,
-                5
-            );
-        }
-    }
+    drawFuelCanisters();
 
     // Draw player (adjusted for camera position) or death animation
     if (gameState.player.isDead) {
-        // Draw death particles with improved effects
+        // Draw death particles
         for (const particle of gameState.player.deathAnimation.particles) {
-            // Create a radial gradient for each particle
-            const particleGradient = ctx.createRadialGradient(
-                particle.x - camera.x, particle.y - camera.y, 0,
-                particle.x - camera.x, particle.y - camera.y, particle.size
-            );
-            
-            // Parse the color components
-            const r = parseInt(particle.color.slice(1, 3), 16);
-            const g = parseInt(particle.color.slice(3, 5), 16);
-            const b = parseInt(particle.color.slice(5, 7), 16);
-            
-            particleGradient.addColorStop(0, `rgba(${r + 50}, ${g + 50}, ${b + 50}, ${particle.opacity})`);
-            particleGradient.addColorStop(0.7, `rgba(${r}, ${g}, ${b}, ${particle.opacity})`);
-            particleGradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
-            
-            ctx.fillStyle = particleGradient;
-            ctx.beginPath();
-            ctx.arc(
+            ctx.fillStyle = particle.color;
+            ctx.fillRect(
                 particle.x - camera.x,
                 particle.y - camera.y,
                 particle.size,
+                particle.size
+            );
+        }
+    } else {
+        // Draw player with space suit at high altitudes
+        drawPlayer();
+    }
+    
+    // Draw minimap
+    drawMinimap();
+    
+    // Draw UI elements
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '16px Arial';
+    ctx.fillText(`Score: ${gameState.score}`, 20, 30);
+    ctx.fillText(`Time: ${Math.floor(gameState.gameTime / 60)}s`, 20, 60);
+    
+    // Draw rewind energy bar
+    const rewindBarWidth = 150;
+    const rewindBarHeight = 15;
+    const rewindBarX = canvas.width - rewindBarWidth - 20;
+    const rewindBarY = 20;
+    
+    // Draw background
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(rewindBarX, rewindBarY, rewindBarWidth, rewindBarHeight);
+    
+    // Draw energy level
+    const energyWidth = (gameState.rewindEnergy / MAX_REWIND_ENERGY) * rewindBarWidth;
+    ctx.fillStyle = gameState.rewindEnergy > 20 ? '#00ff00' : '#ff0000';
+    ctx.fillRect(rewindBarX, rewindBarY, energyWidth, rewindBarHeight);
+    
+    // Draw border
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rewindBarX, rewindBarY, rewindBarWidth, rewindBarHeight);
+    
+    // Draw label
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px Arial';
+    ctx.fillText('REWIND ENERGY', rewindBarX + 35, rewindBarY + rewindBarHeight + 15);
+    
+    // Draw rewind instructions if player is dead
+    if (gameState.player.isDead) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(canvas.width / 2 - 150, canvas.height / 2 - 40, 300, 80);
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 20px Arial';
+        ctx.fillText('PRESS AND HOLD R TO REWIND', canvas.width / 2 - 140, canvas.height / 2);
+        ctx.font = '16px Arial';
+        ctx.fillText('Rewind time to avoid your death!', canvas.width / 2 - 120, canvas.height / 2 + 25);
+    }
+    
+    // Draw altitude indicator when player is high up
+    if (gameState.player.y < 0) {
+        const altitude = Math.abs(Math.floor(gameState.player.y));
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px Arial';
+        ctx.fillText(`ALTITUDE: ${altitude}m`, canvas.width / 2 - 70, 30);
+        
+        // Add space zone indicators
+        if (altitude > 4000) {
+            ctx.fillStyle = '#ff00ff';
+            ctx.fillText('DEEP SPACE ZONE', canvas.width / 2 - 80, 55);
+        } else if (altitude > 2000) {
+            ctx.fillStyle = '#00ffff';
+            ctx.fillText('OUTER SPACE ZONE', canvas.width / 2 - 80, 55);
+        } else if (altitude > 500) {
+            ctx.fillStyle = '#80c0ff';
+            ctx.fillText('UPPER ATMOSPHERE', canvas.width / 2 - 80, 55);
+        }
+    }
+}
+
+// Draw a background with parallax effect and space transition based on height
+function drawBackground() {
+    // Calculate height factor for space transition (0 at ground level, 1 at high altitude)
+    const spaceTransitionStart = 0; // Height where space transition begins
+    const spaceTransitionEnd = 5000; // Height where full space environment is visible
+    const heightFactor = Math.min(1, Math.max(0, (gameState.player.y < 0 ? Math.abs(gameState.player.y) : 0) / spaceTransitionEnd));
+    
+    // Far background (slow parallax)
+    const bgParallaxFactor = 0.2;
+    
+    // Draw a gradient sky with colors that change based on height
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    
+    if (heightFactor < 0.3) {
+        // Ground level to lower atmosphere
+        gradient.addColorStop(0, `rgba(5, 20, 40, ${1 - heightFactor})`); // Darker blue at top
+        gradient.addColorStop(0.5, `rgba(30, 58, 90, ${1 - heightFactor})`); // Mid blue
+        gradient.addColorStop(1, `rgba(42, 84, 122, ${1 - heightFactor})`); // Lighter blue at bottom
+    } else if (heightFactor < 0.7) {
+        // Upper atmosphere transition
+        const transitionFactor = (heightFactor - 0.3) / 0.4;
+        gradient.addColorStop(0, `rgba(5, 10, 30, ${1 - transitionFactor})`); // Darker blue fading out
+        gradient.addColorStop(0.5, `rgba(20, 30, 70, ${1 - transitionFactor})`); // Mid blue fading out
+        gradient.addColorStop(1, `rgba(30, 40, 90, ${1 - transitionFactor})`); // Lighter blue fading out
+    } else {
+        // Space - nearly black with slight blue tint
+        gradient.addColorStop(0, 'rgba(1, 2, 10, 1)');
+        gradient.addColorStop(1, 'rgba(2, 5, 15, 1)');
+    }
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw stars with intensity based on height
+    const starCount = 50 + Math.floor(heightFactor * 150); // More stars as we go higher
+    const starBrightness = 0.5 + heightFactor * 0.5; // Stars get brighter
+    const starSize = 1 + heightFactor * 1.5; // Stars get slightly larger
+    
+    for (let i = 0; i < starCount; i++) {
+        // Use a combination of fixed position and camera position for parallax effect
+        const parallaxFactor = 0.1 + (i % 10) / 10; // Different stars move at different rates
+        const x = (i * 50 + Math.sin(gameState.gameTime * 0.01 + i) * 20 - camera.x * parallaxFactor * 0.1) % canvas.width;
+        const y = (i * 30 + Math.cos(gameState.gameTime * 0.01 + i) * 15 - camera.y * parallaxFactor * 0.1) % canvas.height;
+        
+        const size = Math.random() * starSize + 1;
+        const brightness = starBrightness * (0.5 + Math.sin(gameState.gameTime * 0.05 + i) * 0.5);
+        
+        ctx.fillStyle = `rgba(255, 255, 255, ${brightness})`;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Add space objects that only appear at higher altitudes
+    if (heightFactor > 0.4) {
+        // Draw distant planets
+        const planetVisibility = Math.max(0, (heightFactor - 0.4) / 0.6);
+        
+        // Planet 1 - large gas giant
+        const planet1X = (canvas.width * 0.7 - camera.x * 0.05) % (canvas.width * 2) - canvas.width * 0.5;
+        const planet1Y = (canvas.height * 0.3 - camera.y * 0.05) % (canvas.height * 2);
+        const planet1Size = 80 + Math.sin(gameState.gameTime * 0.001) * 5;
+        
+        const planet1Gradient = ctx.createRadialGradient(
+            planet1X, planet1Y, 0,
+            planet1X, planet1Y, planet1Size
+        );
+        planet1Gradient.addColorStop(0, `rgba(255, 200, 100, ${0.8 * planetVisibility})`);
+        planet1Gradient.addColorStop(0.7, `rgba(200, 100, 50, ${0.7 * planetVisibility})`);
+        planet1Gradient.addColorStop(1, `rgba(150, 50, 30, ${0.1 * planetVisibility})`);
+        
+        ctx.fillStyle = planet1Gradient;
+        ctx.beginPath();
+        ctx.arc(planet1X, planet1Y, planet1Size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Planet 2 - smaller blue planet
+        if (heightFactor > 0.6) {
+            const planet2X = (canvas.width * 0.2 - camera.x * 0.03) % (canvas.width * 2) - canvas.width * 0.5;
+            const planet2Y = (canvas.height * 0.7 - camera.y * 0.03) % (canvas.height * 2);
+            const planet2Size = 40 + Math.sin(gameState.gameTime * 0.002 + 2) * 3;
+            
+            const planet2Gradient = ctx.createRadialGradient(
+                planet2X, planet2Y, 0,
+                planet2X, planet2Y, planet2Size
+            );
+            planet2Gradient.addColorStop(0, `rgba(100, 200, 255, ${0.8 * planetVisibility})`);
+            planet2Gradient.addColorStop(0.6, `rgba(50, 100, 200, ${0.7 * planetVisibility})`);
+            planet2Gradient.addColorStop(1, `rgba(20, 50, 150, ${0.1 * planetVisibility})`);
+            
+            ctx.fillStyle = planet2Gradient;
+            ctx.beginPath();
+            ctx.arc(planet2X, planet2Y, planet2Size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    
+    // Only draw mountains and hills when we're close to the ground
+    if (heightFactor < 0.5) {
+        const groundVisibility = 1 - heightFactor * 2;
+        
+        // Draw some distant mountains with better shading
+        for (let i = 0; i < 5; i++) {
+            const mountainX = (i * 500 - (camera.x * bgParallaxFactor) % 2500) - 100;
+            const mountainHeight = 150 + (i % 3) * 50;
+            
+            // Create mountain gradient for better shading
+            const mountainGradient = ctx.createLinearGradient(
+                mountainX, canvas.height - mountainHeight,
+                mountainX, canvas.height
+            );
+            mountainGradient.addColorStop(0, `rgba(42, 58, 74, ${groundVisibility})`); // Top of mountain
+            mountainGradient.addColorStop(1, `rgba(26, 42, 58, ${groundVisibility})`); // Base of mountain
+            
+            ctx.fillStyle = mountainGradient;
+            ctx.beginPath();
+            ctx.moveTo(mountainX, canvas.height - mountainHeight);
+            ctx.lineTo(mountainX + 250, canvas.height);
+            ctx.lineTo(mountainX - 250, canvas.height);
+            ctx.fill();
+            
+            // Add snow caps to mountains
+            ctx.fillStyle = `rgba(255, 255, 255, ${groundVisibility})`;
+            ctx.beginPath();
+            ctx.moveTo(mountainX, canvas.height - mountainHeight);
+            ctx.lineTo(mountainX + 30, canvas.height - mountainHeight + 40);
+            ctx.lineTo(mountainX - 30, canvas.height - mountainHeight + 40);
+            ctx.fill();
+        }
+        
+        // Add a closer layer of hills with different parallax
+        const hillParallaxFactor = 0.4;
+        for (let i = 0; i < 7; i++) {
+            const hillX = (i * 350 - (camera.x * hillParallaxFactor) % 2450) - 100;
+            const hillHeight = 100 + (i % 4) * 30;
+            
+            // Create hill gradient
+            const hillGradient = ctx.createLinearGradient(
+                hillX, canvas.height - hillHeight,
+                hillX, canvas.height
+            );
+            hillGradient.addColorStop(0, `rgba(58, 74, 90, ${groundVisibility})`); // Top of hill
+            hillGradient.addColorStop(1, `rgba(42, 58, 74, ${groundVisibility})`); // Base of hill
+            
+            ctx.fillStyle = hillGradient;
+            ctx.beginPath();
+            
+            // Create a more natural hill shape with bezier curves
+            ctx.moveTo(hillX - 200, canvas.height);
+            ctx.quadraticCurveTo(
+                hillX - 100, 
+                canvas.height - hillHeight * 0.8, 
+                hillX, 
+                canvas.height - hillHeight
+            );
+            ctx.quadraticCurveTo(
+                hillX + 100, 
+                canvas.height - hillHeight * 0.8, 
+                hillX + 200, 
+                canvas.height
+            );
+            ctx.fill();
+        }
+    }
+}
+
+// Draw a minimap in the corner
+function drawMinimap() {
+    const minimapWidth = 150;
+    const minimapHeight = 80;
+    const minimapX = canvas.width - minimapWidth - 10;
+    const minimapY = 10;
+    const minimapScale = minimapWidth / gameState.worldWidth;
+    
+    // Calculate dynamic vertical scale based on player position
+    // Use the original worldHeight as a base, but adjust if player goes higher
+    const effectiveWorldHeight = Math.max(gameState.worldHeight, gameState.player.y + 500);
+    const minimapVerticalScale = minimapHeight / effectiveWorldHeight;
+    
+    // Draw minimap background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(minimapX, minimapY, minimapWidth, minimapHeight);
+    
+    // Draw platforms on minimap
+    ctx.fillStyle = '#555555';
+    for (const platform of gameState.platforms) {
+        ctx.fillRect(
+            minimapX + platform.x * minimapScale,
+            minimapY + platform.y * minimapVerticalScale,
+            platform.width * minimapScale,
+            platform.height * minimapVerticalScale
+        );
+    }
+    
+    // Draw player on minimap
+    ctx.fillStyle = '#ff0000';
+    ctx.fillRect(
+        minimapX + gameState.player.x * minimapScale,
+        minimapY + gameState.player.y * minimapVerticalScale,
+        gameState.player.width * minimapScale,
+        gameState.player.height * minimapVerticalScale
+    );
+    
+    // Draw camera view on minimap
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+        minimapX + camera.x * minimapScale,
+        minimapY + camera.y * minimapVerticalScale,
+        camera.width * minimapScale,
+        camera.height * minimapVerticalScale
+    );
+}
+
+// Game loop with frame rate control
+function gameLoop(timestamp) {
+    // Calculate time since last update
+    if (!gameState.lastUpdateTime) {
+        gameState.lastUpdateTime = timestamp;
+    }
+    const elapsed = timestamp - gameState.lastUpdateTime;
+    
+    // Only update if enough time has passed
+    if (elapsed > FRAME_DELAY) {
+        gameState.lastUpdateTime = timestamp;
+        
+        if (gameState.isRewinding) {
+            rewindGameState();
+        } else {
+            updatePlayer();
+            saveGameState();
+            gameState.gameTime++;
+            recoverRewindEnergy();
+        }
+        
+        draw();
+    }
+    
+    requestAnimationFrame(gameLoop);
+}
+
+// Start the game
+requestAnimationFrame(gameLoop);
+
+// Add space-themed collectibles at higher altitudes
+function initializeSpaceCollectibles() {
+    // Add special space coins at higher altitudes
+    for (let y = -500; y >= -4000; y -= 300) {
+        // Create clusters of space coins
+        const baseX = Math.random() * 2000 + 500;
+        
+        for (let i = 0; i < 5; i++) {
+            const offsetX = (i - 2) * 50;
+            const offsetY = Math.sin(i) * 50;
+            
+            gameState.coins.push({
+                x: baseX + offsetX,
+                y: y + offsetY,
+                width: 20,
+                height: 20,
+                collected: false,
+                isSpaceCoin: true,
+                value: 50, // Space coins are worth more
+                rotation: 0
+            });
+        }
+    }
+    
+    // Add special fuel canisters in space (oxygen tanks)
+    for (let y = -1000; y >= -4000; y -= 500) {
+        gameState.fuelCanisters.push({
+            x: Math.random() * 2500 + 250,
+            y: y,
+            width: 25,
+            height: 35,
+            collected: false,
+            fuelAmount: 50, // More fuel in space canisters
+            isOxygenTank: true
+        });
+    }
+    
+    // Add a super jetpack at the space station
+    gameState.superJetpack = {
+        x: 1250,
+        y: -4150,
+        width: 40,
+        height: 40,
+        collected: false
+    };
+}
+
+// Call this function after initializing the game state
+initializeSpaceCollectibles();
+
+// Update the draw function to render space collectibles differently
+function drawCoins() {
+    for (const coin of gameState.coins) {
+        if (coin.collected || !isVisible(coin)) continue;
+        
+        // Update coin rotation
+        coin.rotation = (coin.rotation || 0) + 0.05;
+        
+        if (coin.isSpaceCoin) {
+            // Space coin with special effects
+            const coinX = coin.x - camera.x + coin.width / 2;
+            const coinY = coin.y - camera.y + coin.height / 2;
+            
+            // Draw glowing effect
+            const glowSize = 10 + Math.sin(gameState.gameTime * 0.05) * 3;
+            const gradient = ctx.createRadialGradient(
+                coinX, coinY, 0,
+                coinX, coinY, coin.width / 2 + glowSize
+            );
+            gradient.addColorStop(0, 'rgba(200, 200, 255, 0.8)');
+            gradient.addColorStop(0.5, 'rgba(100, 100, 255, 0.5)');
+            gradient.addColorStop(1, 'rgba(50, 50, 255, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(coinX, coinY, coin.width / 2 + glowSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw the space coin with a star shape
+            ctx.save();
+            ctx.translate(coinX, coinY);
+            ctx.rotate(coin.rotation);
+            
+            // Draw a star shape
+            ctx.fillStyle = '#8080ff';
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const angle = (i * 2 * Math.PI / 5) - Math.PI / 2;
+                const outerX = Math.cos(angle) * (coin.width / 2);
+                const outerY = Math.sin(angle) * (coin.height / 2);
+                
+                const innerAngle = angle + Math.PI / 5;
+                const innerX = Math.cos(innerAngle) * (coin.width / 4);
+                const innerY = Math.sin(innerAngle) * (coin.height / 4);
+                
+                if (i === 0) {
+                    ctx.moveTo(outerX, outerY);
+                } else {
+                    ctx.lineTo(outerX, outerY);
+                }
+                
+                ctx.lineTo(innerX, innerY);
+            }
+            ctx.closePath();
+            ctx.fill();
+            
+            // Add inner glow
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, coin.width / 6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        } else {
+            // Regular coin
+            // ... existing regular coin drawing code ...
+            const coinX = coin.x - camera.x + coin.width / 2;
+            const coinY = coin.y - camera.y + coin.height / 2;
+            
+            // Draw coin with gradient
+            const gradient = ctx.createRadialGradient(
+                coinX, coinY, 0,
+                coinX, coinY, coin.width / 2
+            );
+            gradient.addColorStop(0, '#fff7aa');
+            gradient.addColorStop(1, '#ffd700');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(coinX, coinY, coin.width / 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Add shine effect
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.beginPath();
+            ctx.arc(
+                coinX - coin.width / 6,
+                coinY - coin.height / 6,
+                coin.width / 6,
                 0,
                 Math.PI * 2
             );
             ctx.fill();
+        }
+    }
+}
+
+function drawFuelCanisters() {
+    for (const fuel of gameState.fuelCanisters) {
+        if (fuel.collected || !isVisible(fuel)) continue;
+        
+        if (fuel.isOxygenTank) {
+            // Draw oxygen tank for space
+            const fuelX = fuel.x - camera.x;
+            const fuelY = fuel.y - camera.y;
             
-            // Add glow effect to particles
-            if (particle.opacity > 0.5) {
-                ctx.shadowColor = particle.color;
-                ctx.shadowBlur = 5;
-                ctx.beginPath();
-                ctx.arc(
-                    particle.x - camera.x,
-                    particle.y - camera.y,
-                    particle.size * 0.5,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.fillStyle = `rgba(${r + 100}, ${g + 100}, ${b + 100}, ${particle.opacity * 0.5})`;
-                ctx.fill();
-                ctx.shadowBlur = 0;
-            }
+            // Tank body
+            ctx.fillStyle = '#a0d0ff';
+            ctx.fillRect(fuelX, fuelY, fuel.width, fuel.height);
+            
+            // Tank cap
+            ctx.fillStyle = '#80a0c0';
+            ctx.fillRect(fuelX, fuelY, fuel.width, 5);
+            
+            // Tank valve
+            ctx.fillStyle = '#6080a0';
+            ctx.fillRect(fuelX + fuel.width / 2 - 2, fuelY - 5, 4, 5);
+            
+            // Oxygen symbol
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '12px Arial';
+            ctx.fillText('O₂', fuelX + 5, fuelY + 20);
+            
+            // Glow effect
+            ctx.fillStyle = 'rgba(160, 208, 255, 0.3)';
+            ctx.beginPath();
+            ctx.arc(
+                fuelX + fuel.width / 2,
+                fuelY + fuel.height / 2,
+                fuel.width,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+        } else {
+            // Regular fuel canister
+            // ... existing fuel canister drawing code ...
+            const fuelX = fuel.x - camera.x;
+            const fuelY = fuel.y - camera.y;
+            
+            // Canister body
+            ctx.fillStyle = '#00cc00';
+            ctx.fillRect(fuelX, fuelY, fuel.width, fuel.height);
+            
+            // Canister cap
+            ctx.fillStyle = '#008800';
+            ctx.fillRect(fuelX, fuelY, fuel.width, 5);
+            
+            // Fuel gauge
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(fuelX + 5, fuelY + 10, fuel.width - 10, fuel.height - 20);
+            
+            ctx.fillStyle = '#00ff00';
+            ctx.fillRect(fuelX + 7, fuelY + 12, fuel.width - 14, fuel.height - 24);
+        }
+    }
+    
+    // Draw super jetpack if not collected
+    if (gameState.superJetpack && !gameState.superJetpack.collected && isVisible(gameState.superJetpack)) {
+        const jetpackX = gameState.superJetpack.x - camera.x;
+        const jetpackY = gameState.superJetpack.y - camera.y;
+        
+        // Jetpack body
+        ctx.fillStyle = '#ff5500';
+        ctx.fillRect(jetpackX, jetpackY, gameState.superJetpack.width, gameState.superJetpack.height);
+        
+        // Jetpack nozzles
+        ctx.fillStyle = '#cc3300';
+        ctx.fillRect(jetpackX, jetpackY + gameState.superJetpack.height - 10, 10, 10);
+        ctx.fillRect(jetpackX + gameState.superJetpack.width - 10, jetpackY + gameState.superJetpack.height - 10, 10, 10);
+        
+        // Jetpack straps
+        ctx.strokeStyle = '#aa2200';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(jetpackX, jetpackY + 5);
+        ctx.lineTo(jetpackX - 10, jetpackY + 15);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(jetpackX + gameState.superJetpack.width, jetpackY + 5);
+        ctx.lineTo(jetpackX + gameState.superJetpack.width + 10, jetpackY + 15);
+        ctx.stroke();
+        
+        // Glow effect
+        const glowSize = 5 + Math.sin(gameState.gameTime * 0.1) * 2;
+        ctx.fillStyle = 'rgba(255, 100, 0, 0.3)';
+        ctx.beginPath();
+        ctx.arc(
+            jetpackX + gameState.superJetpack.width / 2,
+            jetpackY + gameState.superJetpack.height / 2,
+            gameState.superJetpack.width / 2 + glowSize,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
+        
+        // "SUPER" text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 10px Arial';
+        ctx.fillText('SUPER', jetpackX + 2, jetpackY + 15);
+    }
+}
+
+// Draw player with space suit at high altitudes
+function drawPlayer() {
+    if (gameState.player.isDead) {
+        // Don't draw the player if dead, death animation is handled separately
+        return;
+    }
+    
+    // Check if player is in space
+    const isInSpace = gameState.player.y < -500;
+    const spaceDepth = Math.min(1, Math.abs(gameState.player.y + 500) / 3500);
+    
+    // Draw jetpack first (if player has one)
+    if (gameState.player.hasJetpack) {
+        const isSuperJetpack = gameState.player.hasSuperJetpack;
+        
+        // Draw jetpack body
+        ctx.fillStyle = isSuperJetpack ? '#ff5500' : '#ff8800';
+        ctx.fillRect(
+            gameState.player.x - camera.x - 10,
+            gameState.player.y - camera.y + 15,
+            20,
+            30
+        );
+        
+        // Draw fuel gauge
+        const fuelHeight = (gameState.player.jetpackFuel / gameState.player.maxJetpackFuel) * 25;
+        
+        // Gauge background
+        ctx.fillStyle = '#333333';
+        ctx.fillRect(
+            gameState.player.x - camera.x - 5,
+            gameState.player.y - camera.y + 35 - 25,
+            7,
+            25
+        );
+        
+        // Fuel level
+        ctx.fillStyle = isSuperJetpack ? '#00ffff' : '#00ff00';
+        ctx.fillRect(
+            gameState.player.x - camera.x - 5,
+            gameState.player.y - camera.y + 35 - fuelHeight,
+            7,
+            fuelHeight
+        );
+        
+        // Draw nozzles
+        ctx.fillStyle = '#555555';
+        ctx.fillRect(
+            gameState.player.x - camera.x - 8,
+            gameState.player.y - camera.y + 40,
+            5,
+            5
+        );
+        ctx.fillRect(
+            gameState.player.x - camera.x,
+            gameState.player.y - camera.y + 40,
+            5,
+            5
+        );
+        
+        // Draw jetpack straps
+        ctx.strokeStyle = '#8B4513';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(gameState.player.x - camera.x - 8, gameState.player.y - camera.y + 15);
+        ctx.lineTo(gameState.player.x - camera.x + 5, gameState.player.y - camera.y + 10);
+        ctx.lineTo(gameState.player.x - camera.x + 15, gameState.player.y - camera.y + 15);
+        ctx.stroke();
+        
+        // Draw super jetpack details if applicable
+        if (isSuperJetpack) {
+            // Add glowing edges
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(
+                gameState.player.x - camera.x - 10,
+                gameState.player.y - camera.y + 15,
+                20,
+                30
+            );
+            
+            // Add "SUPER" text
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 8px Arial';
+            ctx.fillText('SUPER', gameState.player.x - camera.x - 8, gameState.player.y - camera.y + 25);
+        }
+        
+        // Draw jetpack flames if active
+        drawJetpackFlames();
+    }
+    
+    // Draw player body
+    if (isInSpace) {
+        // Space suit appearance
+        // Create gradient for space suit
+        const suitGradient = ctx.createLinearGradient(
+            gameState.player.x - camera.x,
+            gameState.player.y - camera.y,
+            gameState.player.x - camera.x,
+            gameState.player.y + gameState.player.height - camera.y
+        );
+        
+        // Color changes based on depth in space
+        if (spaceDepth > 0.7) {
+            // Deep space suit (white with blue accents)
+            suitGradient.addColorStop(0, '#ffffff');
+            suitGradient.addColorStop(1, '#e0e0ff');
+        } else {
+            // Upper atmosphere suit (light blue)
+            suitGradient.addColorStop(0, '#a0c0ff');
+            suitGradient.addColorStop(1, '#80a0e0');
+        }
+        
+        // Draw the space suit body
+        ctx.fillStyle = suitGradient;
+        ctx.fillRect(
+            gameState.player.x - camera.x, 
+            gameState.player.y - camera.y, 
+            gameState.player.width, 
+            gameState.player.height
+        );
+        
+        // Draw helmet visor
+        ctx.fillStyle = spaceDepth > 0.7 ? '#80c0ff' : '#60a0e0';
+        ctx.fillRect(
+            gameState.player.x - camera.x + 5, 
+            gameState.player.y - camera.y + 5, 
+            gameState.player.width - 10, 
+            15
+        );
+        
+        // Draw suit details
+        ctx.fillStyle = '#555555';
+        // Oxygen tank
+        ctx.fillRect(
+            gameState.player.x - camera.x + gameState.player.width - 5, 
+            gameState.player.y - camera.y + 20, 
+            5, 
+            20
+        );
+        
+        // Draw suit joints
+        ctx.fillStyle = '#444444';
+        // Arm joint
+        ctx.fillRect(
+            gameState.player.x - camera.x + gameState.player.width - 8, 
+            gameState.player.y - camera.y + 20, 
+            8, 
+            5
+        );
+        // Leg joint
+        ctx.fillRect(
+            gameState.player.x - camera.x + gameState.player.width/2 - 5, 
+            gameState.player.y - camera.y + 35, 
+            10, 
+            5
+        );
+        
+        // Add space suit glow in deep space
+        if (spaceDepth > 0.7) {
+            ctx.fillStyle = 'rgba(160, 200, 255, 0.3)';
+            ctx.beginPath();
+            ctx.arc(
+                gameState.player.x - camera.x + gameState.player.width/2,
+                gameState.player.y - camera.y + gameState.player.height/2,
+                gameState.player.width,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
         }
     } else {
-        // Draw normal player with improved styling
+        // Regular player appearance
         // Create gradient for player body
         const playerGradient = ctx.createLinearGradient(
             gameState.player.x - camera.x,
@@ -961,361 +1727,5 @@ function draw() {
             2,
             2
         );
-        
-        // Draw jetpack on player if collected with improved styling
-        if (gameState.player.hasJetpack) {
-            // Create gradient for jetpack
-            const jetpackGradient = ctx.createLinearGradient(
-                gameState.player.x - camera.x - 5,
-                gameState.player.y - camera.y + 10,
-                gameState.player.x - camera.x + 5,
-                gameState.player.y - camera.y + 40
-            );
-            jetpackGradient.addColorStop(0, '#ffa500'); // Orange
-            jetpackGradient.addColorStop(0.7, '#ff8c00'); // Dark orange
-            jetpackGradient.addColorStop(1, '#cc7000'); // Even darker
-            
-            // Draw jetpack body
-            ctx.fillStyle = jetpackGradient;
-            ctx.fillRect(
-                gameState.player.x - camera.x - 8,
-                gameState.player.y - camera.y + 10,
-                13,
-                30
-            );
-            
-            // Draw jetpack details
-            // Fuel gauge on jetpack
-            const fuelPercentage = gameState.player.jetpackFuel / gameState.player.maxJetpackFuel;
-            
-            // Gauge background
-            ctx.fillStyle = '#333333';
-            ctx.fillRect(
-                gameState.player.x - camera.x - 5,
-                gameState.player.y - camera.y + 15,
-                7,
-                20
-            );
-            
-            // Fuel level
-            let fuelColor;
-            if (fuelPercentage > 0.6) {
-                fuelColor = '#00ff00'; // Green for high fuel
-            } else if (fuelPercentage > 0.3) {
-                fuelColor = '#ffff00'; // Yellow for medium fuel
-            } else {
-                fuelColor = '#ff0000'; // Red for low fuel
-            }
-            
-            ctx.fillStyle = fuelColor;
-            const fuelHeight = 20 * fuelPercentage;
-            ctx.fillRect(
-                gameState.player.x - camera.x - 5,
-                gameState.player.y - camera.y + 35 - fuelHeight,
-                7,
-                fuelHeight
-            );
-            
-            // Draw nozzles
-            ctx.fillStyle = '#555555';
-            ctx.fillRect(
-                gameState.player.x - camera.x - 8,
-                gameState.player.y - camera.y + 40,
-                5,
-                5
-            );
-            ctx.fillRect(
-                gameState.player.x - camera.x,
-                gameState.player.y - camera.y + 40,
-                5,
-                5
-            );
-            
-            // Draw jetpack straps
-            ctx.strokeStyle = '#8B4513';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(gameState.player.x - camera.x - 8, gameState.player.y - camera.y + 15);
-            ctx.lineTo(gameState.player.x - camera.x + 5, gameState.player.y - camera.y + 10);
-            ctx.lineTo(gameState.player.x - camera.x + 15, gameState.player.y - camera.y + 15);
-            ctx.stroke();
-            
-            // Draw jetpack flames if active
-            drawJetpackFlames();
-            
-            // Draw jetpack availability indicator
-            if (gameState.player.jetpackFuel > 0 && !gameState.player.jetpackActive) {
-                // Draw a pulsing indicator above the player
-                const pulseSize = Math.sin(gameState.gameTime * 0.1) * 2 + 5;
-                
-                // Create radial gradient for the indicator
-                const indicatorGradient = ctx.createRadialGradient(
-                    gameState.player.x + gameState.player.width / 2 - camera.x,
-                    gameState.player.y - 10 - camera.y,
-                    0,
-                    gameState.player.x + gameState.player.width / 2 - camera.x,
-                    gameState.player.y - 10 - camera.y,
-                    pulseSize + 2
-                );
-                indicatorGradient.addColorStop(0, '#ffffff');
-                indicatorGradient.addColorStop(0.5, '#ffff00');
-                indicatorGradient.addColorStop(1, 'rgba(255, 255, 0, 0)');
-                
-                ctx.fillStyle = indicatorGradient;
-                ctx.beginPath();
-                ctx.arc(
-                    gameState.player.x + gameState.player.width / 2 - camera.x,
-                    gameState.player.y - 10 - camera.y,
-                    pulseSize + 2,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.fill();
-                
-                // Draw small up arrow with glow effect
-                ctx.shadowColor = '#ffff00';
-                ctx.shadowBlur = 5;
-                ctx.fillStyle = '#000000';
-                ctx.beginPath();
-                ctx.moveTo(gameState.player.x + gameState.player.width / 2 - camera.x, gameState.player.y - 15 - camera.y);
-                ctx.lineTo(gameState.player.x + gameState.player.width / 2 - 5 - camera.x, gameState.player.y - 5 - camera.y);
-                ctx.lineTo(gameState.player.x + gameState.player.width / 2 + 5 - camera.x, gameState.player.y - 5 - camera.y);
-                ctx.closePath();
-                ctx.fill();
-                ctx.shadowBlur = 0;
-            }
-        }
     }
-
-    // Draw score and other UI elements (fixed position, not affected by camera)
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '20px Arial';
-    ctx.fillText(`Score: ${gameState.score}`, 20, 30);
-    ctx.fillText(`Position: ${Math.floor(gameState.player.x)}, ${Math.floor(gameState.player.y)}`, 20, 60);
-    
-    // Draw jetpack fuel gauge if player has jetpack
-    if (gameState.player.hasJetpack) {
-        const fuelPercentage = gameState.player.jetpackFuel / gameState.player.maxJetpackFuel;
-        ctx.fillText(`Jetpack Fuel: ${Math.floor(gameState.player.jetpackFuel)}%`, 20, 90);
-        
-        // Draw fuel bar background
-        ctx.fillStyle = '#333333';
-        ctx.fillRect(20, 100, 150, 15);
-        
-        // Draw fuel level
-        let fuelColor;
-        if (fuelPercentage > 0.6) {
-            fuelColor = '#00ff00'; // Green for high fuel
-        } else if (fuelPercentage > 0.3) {
-            fuelColor = '#ffff00'; // Yellow for medium fuel
-        } else {
-            fuelColor = '#ff0000'; // Red for low fuel
-        }
-        
-        ctx.fillStyle = fuelColor;
-        ctx.fillRect(20, 100, 150 * fuelPercentage, 15);
-    }
-
-    // Draw minimap
-    drawMinimap();
-    
-    // Update UI elements
-    if (!gameState.player.isDead) {
-        document.getElementById('timeInfo').textContent = `Time: ${Math.floor(gameState.gameTime / FRAME_RATE)}s`;
-    }
-    document.getElementById('rewindInfo').textContent = `Rewind Energy: ${Math.floor(gameState.rewindEnergy)}%`;
-    
-    // Visual effect when rewinding
-    if (gameState.isRewinding) {
-        ctx.fillStyle = 'rgba(79, 195, 247, 0.2)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.strokeStyle = 'rgba(79, 195, 247, 0.8)';
-        ctx.lineWidth = 5;
-        ctx.strokeRect(0, 0, canvas.width, canvas.height);
-        
-        // Add a rewind text indicator
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 30px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('REWINDING', canvas.width / 2, 50);
-        ctx.textAlign = 'left';
-    }
-    
-    // Death message
-    if (gameState.player.isDead) {
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 40px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('YOU DIED', canvas.width / 2, canvas.height / 2 - 20);
-        ctx.font = 'bold 25px Arial';
-        ctx.fillText('PRESS R TO REWIND TIME', canvas.width / 2, canvas.height / 2 + 20);
-        ctx.textAlign = 'left';
-    }
-}
-
-// Draw a simple background with parallax effect
-function drawBackground() {
-    // Far background (slow parallax)
-    const bgParallaxFactor = 0.2;
-    
-    // Draw a gradient sky with more vibrant colors
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, '#051428'); // Darker blue at top
-    gradient.addColorStop(0.5, '#1e3a5a'); // Mid blue
-    gradient.addColorStop(1, '#2a547a'); // Lighter blue at bottom
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw stars in the background
-    for (let i = 0; i < 50; i++) {
-        const x = (i * 50 + Math.sin(gameState.gameTime * 0.01 + i) * 20) % canvas.width;
-        const y = (i * 30 + Math.cos(gameState.gameTime * 0.01 + i) * 15) % (canvas.height * 0.7);
-        const size = Math.random() * 2 + 1;
-        const brightness = 0.5 + Math.sin(gameState.gameTime * 0.05 + i) * 0.5;
-        
-        ctx.fillStyle = `rgba(255, 255, 255, ${brightness})`;
-        ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI * 2);
-        ctx.fill();
-    }
-    
-    // Draw some distant mountains with better shading
-    for (let i = 0; i < 5; i++) {
-        const mountainX = (i * 500 - (camera.x * bgParallaxFactor) % 2500) - 100;
-        const mountainHeight = 150 + (i % 3) * 50;
-        
-        // Create mountain gradient for better shading
-        const mountainGradient = ctx.createLinearGradient(
-            mountainX, canvas.height - mountainHeight,
-            mountainX, canvas.height
-        );
-        mountainGradient.addColorStop(0, '#2a3a4a'); // Top of mountain
-        mountainGradient.addColorStop(1, '#1a2a3a'); // Base of mountain
-        
-        ctx.fillStyle = mountainGradient;
-        ctx.beginPath();
-        ctx.moveTo(mountainX, canvas.height - mountainHeight);
-        ctx.lineTo(mountainX + 250, canvas.height);
-        ctx.lineTo(mountainX - 250, canvas.height);
-        ctx.fill();
-        
-        // Add snow caps to mountains
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.moveTo(mountainX, canvas.height - mountainHeight);
-        ctx.lineTo(mountainX + 30, canvas.height - mountainHeight + 40);
-        ctx.lineTo(mountainX - 30, canvas.height - mountainHeight + 40);
-        ctx.fill();
-    }
-    
-    // Add a closer layer of hills with different parallax
-    const hillParallaxFactor = 0.4;
-    for (let i = 0; i < 7; i++) {
-        const hillX = (i * 350 - (camera.x * hillParallaxFactor) % 2450) - 100;
-        const hillHeight = 100 + (i % 4) * 30;
-        
-        // Create hill gradient
-        const hillGradient = ctx.createLinearGradient(
-            hillX, canvas.height - hillHeight,
-            hillX, canvas.height
-        );
-        hillGradient.addColorStop(0, '#3a4a5a'); // Top of hill
-        hillGradient.addColorStop(1, '#2a3a4a'); // Base of hill
-        
-        ctx.fillStyle = hillGradient;
-        ctx.beginPath();
-        
-        // Create a more natural hill shape with bezier curves
-        ctx.moveTo(hillX - 200, canvas.height);
-        ctx.quadraticCurveTo(
-            hillX - 100, 
-            canvas.height - hillHeight * 0.8, 
-            hillX, 
-            canvas.height - hillHeight
-        );
-        ctx.quadraticCurveTo(
-            hillX + 100, 
-            canvas.height - hillHeight * 0.8, 
-            hillX + 200, 
-            canvas.height
-        );
-        ctx.fill();
-    }
-}
-
-// Draw a minimap in the corner
-function drawMinimap() {
-    const minimapWidth = 150;
-    const minimapHeight = 80;
-    const minimapX = canvas.width - minimapWidth - 10;
-    const minimapY = 10;
-    const minimapScale = minimapWidth / gameState.worldWidth;
-    
-    // Draw minimap background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(minimapX, minimapY, minimapWidth, minimapHeight);
-    
-    // Draw platforms on minimap
-    ctx.fillStyle = '#555555';
-    for (const platform of gameState.platforms) {
-        ctx.fillRect(
-            minimapX + platform.x * minimapScale,
-            minimapY + platform.y * minimapScale * (minimapHeight / gameState.worldHeight),
-            platform.width * minimapScale,
-            platform.height * minimapScale * (minimapHeight / gameState.worldHeight)
-        );
-    }
-    
-    // Draw player on minimap
-    ctx.fillStyle = '#ff0000';
-    ctx.fillRect(
-        minimapX + gameState.player.x * minimapScale,
-        minimapY + gameState.player.y * minimapScale * (minimapHeight / gameState.worldHeight),
-        gameState.player.width * minimapScale,
-        gameState.player.height * minimapScale * (minimapHeight / gameState.worldHeight)
-    );
-    
-    // Draw camera view on minimap
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(
-        minimapX + camera.x * minimapScale,
-        minimapY + camera.y * minimapScale * (minimapHeight / gameState.worldHeight),
-        camera.width * minimapScale,
-        camera.height * minimapScale * (minimapHeight / gameState.worldHeight)
-    );
-}
-
-// Game loop with frame rate control
-function gameLoop(timestamp) {
-    // Calculate time since last update
-    if (!gameState.lastUpdateTime) {
-        gameState.lastUpdateTime = timestamp;
-    }
-    const elapsed = timestamp - gameState.lastUpdateTime;
-    
-    // Only update if enough time has passed
-    if (elapsed > FRAME_DELAY) {
-        gameState.lastUpdateTime = timestamp;
-        
-        if (gameState.isRewinding) {
-            rewindGameState();
-        } else {
-            updatePlayer();
-            saveGameState();
-            gameState.gameTime++;
-            recoverRewindEnergy();
-        }
-        
-        draw();
-    }
-    
-    requestAnimationFrame(gameLoop);
-}
-
-// Start the game
-requestAnimationFrame(gameLoop); 
+} 
