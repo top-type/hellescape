@@ -38,7 +38,7 @@ const gameState = {
         },
         hasJetpack: false,
         jetpackFuel: 0,
-        maxJetpackFuel: 100,
+        maxJetpackFuel: 200, // Increased from 100 to allow for more fuel storage
         jetpackActive: false,
         hasSuperJetpack: false
     },
@@ -184,10 +184,10 @@ const gameState = {
     },
     // Add fuel canisters
     fuelCanisters: [
-        { x: 500, y: 100, width: 20, height: 30, color: '#00ff00', collected: false, fuelAmount: 50 },
-        { x: 1200, y: 250, width: 20, height: 30, color: '#00ff00', collected: false, fuelAmount: 50 },
-        { x: 1800, y: 200, width: 20, height: 30, color: '#00ff00', collected: false, fuelAmount: 50 },
-        { x: 2400, y: 100, width: 20, height: 30, color: '#00ff00', collected: false, fuelAmount: 50 }
+        { x: 500, y: 100, width: 20, height: 30, color: '#00ff00', collected: false, fuelAmount: 100 },
+        { x: 1200, y: 250, width: 20, height: 30, color: '#00ff00', collected: false, fuelAmount: 100 },
+        { x: 1800, y: 200, width: 20, height: 30, color: '#00ff00', collected: false, fuelAmount: 100 },
+        { x: 2400, y: 100, width: 20, height: 30, color: '#00ff00', collected: false, fuelAmount: 100 }
     ],
     score: 0,
     gameTime: 0,
@@ -203,7 +203,7 @@ const JUMP_FORCE = -12;
 const MOVE_SPEED = 5;
 const FRICTION = 0.8;
 const JETPACK_THRUST = -0.5;
-const JETPACK_FUEL_CONSUMPTION = 1;
+const JETPACK_FUEL_CONSUMPTION = 0.3; // Reduced from 1 to make fuel last longer
 const FRAME_RATE = 60;
 const FRAME_DELAY = 1000 / FRAME_RATE; // Time between frames in milliseconds
 const REWIND_ENERGY_DEPLETION_RATE = 0.3;
