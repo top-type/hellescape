@@ -237,7 +237,6 @@ window.addEventListener('keydown', (e) => {
                 break;
             case 'ArrowUp':
             case 'w':
-            case ' ':
                 keys.up = true;
                 break;
             case 'ArrowDown':
@@ -251,8 +250,8 @@ window.addEventListener('keydown', (e) => {
         }
     }
     
-    // Always allow rewind key (to recover from death)
-    if (e.key === 'r' || e.key === 'R') {
+    // Always allow space key for rewind (to recover from death)
+    if (e.key === ' ') {
         if (gameState.rewindEnergy > 0) {
             keys.rewind = true;
             gameState.isRewinding = true;
@@ -272,7 +271,6 @@ window.addEventListener('keyup', (e) => {
             break;
         case 'ArrowUp':
         case 'w':
-        case ' ':
             keys.up = false;
             break;
         case 'ArrowDown':
@@ -280,8 +278,7 @@ window.addEventListener('keyup', (e) => {
             keys.jetpack = false;
             gameState.player.jetpackActive = false;
             break;
-        case 'r':
-        case 'R':
+        case ' ':
             keys.rewind = false;
             gameState.isRewinding = false;
             break;
@@ -349,7 +346,7 @@ function killPlayer() {
         createDeathParticles();
         
         // Display death message
-        document.getElementById('timeInfo').textContent = "YOU DIED - PRESS R TO REWIND";
+        document.getElementById('timeInfo').textContent = "YOU DIED - PRESS SPACE TO REWIND";
     }
 }
 
@@ -940,14 +937,10 @@ function draw() {
         drawPlayer();
     }
     
-    // Draw minimap
-    drawMinimap();
-    
     // Draw UI elements
     ctx.fillStyle = '#ffffff';
     ctx.font = '16px Arial';
     ctx.fillText(`Score: ${gameState.score}`, 20, 30);
-    ctx.fillText(`Time: ${Math.floor(gameState.gameTime / 60)}s`, 20, 60);
     
     // Draw rewind energy bar
     const rewindBarWidth = 150;
@@ -969,11 +962,6 @@ function draw() {
     ctx.lineWidth = 2;
     ctx.strokeRect(rewindBarX, rewindBarY, rewindBarWidth, rewindBarHeight);
     
-    // Draw label
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '12px Arial';
-    ctx.fillText('REWIND ENERGY', rewindBarX + 35, rewindBarY + rewindBarHeight + 15);
-    
     // Draw rewind instructions if player is dead
     if (gameState.player.isDead) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -981,7 +969,7 @@ function draw() {
         
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 20px Arial';
-        ctx.fillText('PRESS AND HOLD R TO REWIND', canvas.width / 2 - 140, canvas.height / 2);
+        ctx.fillText('PRESS SPACE TO REWIND', canvas.width / 2 - 120, canvas.height / 2);
         ctx.font = '16px Arial';
         ctx.fillText('Rewind time to avoid your death!', canvas.width / 2 - 120, canvas.height / 2 + 25);
     }
@@ -1171,54 +1159,6 @@ function drawBackground() {
             ctx.fill();
         }
     }
-}
-
-// Draw a minimap in the corner
-function drawMinimap() {
-    const minimapWidth = 150;
-    const minimapHeight = 80;
-    const minimapX = canvas.width - minimapWidth - 10;
-    const minimapY = 10;
-    const minimapScale = minimapWidth / gameState.worldWidth;
-    
-    // Calculate dynamic vertical scale based on player position
-    // Use the original worldHeight as a base, but adjust if player goes higher
-    const effectiveWorldHeight = Math.max(gameState.worldHeight, gameState.player.y + 500);
-    const minimapVerticalScale = minimapHeight / effectiveWorldHeight;
-    
-    // Draw minimap background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(minimapX, minimapY, minimapWidth, minimapHeight);
-    
-    // Draw platforms on minimap
-    ctx.fillStyle = '#555555';
-    for (const platform of gameState.platforms) {
-        ctx.fillRect(
-            minimapX + platform.x * minimapScale,
-            minimapY + platform.y * minimapVerticalScale,
-            platform.width * minimapScale,
-            platform.height * minimapVerticalScale
-        );
-    }
-    
-    // Draw player on minimap
-    ctx.fillStyle = '#ff0000';
-    ctx.fillRect(
-        minimapX + gameState.player.x * minimapScale,
-        minimapY + gameState.player.y * minimapVerticalScale,
-        gameState.player.width * minimapScale,
-        gameState.player.height * minimapVerticalScale
-    );
-    
-    // Draw camera view on minimap
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(
-        minimapX + camera.x * minimapScale,
-        minimapY + camera.y * minimapVerticalScale,
-        camera.width * minimapScale,
-        camera.height * minimapVerticalScale
-    );
 }
 
 // Game loop with frame rate control
