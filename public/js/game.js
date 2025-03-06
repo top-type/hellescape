@@ -36,8 +36,8 @@ const gameState = {
             maxProgress: 60, // Animation frames
             particles: []
         },
-        hasJetpack: false,
-        jetpackFuel: 0,
+        hasJetpack: true, // Start with jetpack
+        jetpackFuel: 200, // Start with full fuel
         maxJetpackFuel: 200, // Increased from 100 to allow for more fuel storage
         jetpackActive: false,
         hasSuperJetpack: false
@@ -165,7 +165,7 @@ const gameState = {
         width: 40,  // Increased from 30
         height: 50,  // Increased from 40
         color: '#ffa500',
-        collected: false
+        collected: true  // Mark as collected since player starts with it
     },
     // Add fuel canisters
     fuelCanisters: [
@@ -190,7 +190,7 @@ const gameState = {
         height: 300,
         velocityX: 0,
         velocityY: 0,
-        speed: 4.0, // Increased from 2.5 to make Cthulhu faster
+        speed: 5.0, // Increased from 4.0 to make Cthulhu much faster
         activationHeight: -9000, // Changed from -5000 to match the deeper position
         tentacles: [], // Will store tentacle positions
         glowIntensity: 0, // For pulsating red glow effect
@@ -1776,7 +1776,7 @@ function updateCthulhu() {
             // Calculate dynamic speed based on distance
             // The farther away Cthulhu is, the faster it moves
             const baseSpeed = cthulhu.speed;
-            const distanceFactor = Math.min(5, distance / 300); // Reduced cap to 2x and increased distance threshold to 500
+            const distanceFactor = Math.min(8, distance / 200); // Increased max speed multiplier to 8x and reduced distance threshold
             const dynamicSpeed = baseSpeed * distanceFactor;
             
             cthulhu.velocityX = (dx / distance) * dynamicSpeed;
@@ -2066,8 +2066,8 @@ function resetGame() {
             maxProgress: 60,
             particles: []
         },
-        hasJetpack: false,
-        jetpackFuel: 0,
+        hasJetpack: true, // Start with jetpack
+        jetpackFuel: 200, // Start with full fuel
         maxJetpackFuel: 200,
         jetpackActive: false,
         hasSuperJetpack: false
@@ -2086,6 +2086,9 @@ function resetGame() {
     gameState.rewindEnergy = 100;
     gameState.isRewinding = false;
     gameState.pastStates = [];
+    
+    // Mark jetpack as collected since player starts with it
+    gameState.jetpack.collected = true;
     
     // Reset any other game state variables as needed
     
